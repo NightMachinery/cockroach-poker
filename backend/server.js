@@ -48,8 +48,10 @@ if (process.env.NODE_ENV === 'production') {
 
 const gameRoomService = new GameRoomService();
 
-// Initialize GameRoomService
-(async () => {
+// Connect the database, then restore game rooms from it.
+// connectDB() must run before any model query (lowdb has no query buffering).
+const dbReady = (async () => {
+  await connectDB();
   await gameRoomService.initializeGameRoomMap();
 })();
 
@@ -333,7 +335,9 @@ io.on('connection', (socket) => {
     }
   });
 });
-server.listen(PORT, () => {
-  connectDB();
-  console.log(`Server is running on http://localhost:${PORT}`);
+// Wait for the database to be ready before accepting connections.
+dbReady.then(() => {
+  server.listen(PORT, () => {
+    console.log(`Server is running on ${BASE_URL}`);
+  });
 });
