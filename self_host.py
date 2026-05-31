@@ -11,11 +11,13 @@ import re
 import subprocess
 import sys
 import socket
+import shlex
 from pathlib import Path
 from typing import Optional, Dict, Any
 
 # Configuration
 PROJECT_NAME = "cockroachpoker"
+NODE_VERSION = "24"  # No .nvmrc in repo; pin a version `nvm use` can resolve
 BACKEND_PORT = 8420
 FRONTEND_DEV_PORT = 5173
 BACKEND_TMUX_SESSION = f"{PROJECT_NAME}-backend"
@@ -98,6 +100,42 @@ def get_proxy_env() -> Dict[str, str]:
         'npm_config_proxy', 'npm_config_https_proxy'
     ]
     return {k: v for k, v in os.environ.items() if k in proxy_vars}
+
+
+def proxy_export_prefix() -> str:
+    """Build an inline `export ...; ` prefix for the proxy vars present in this env.
+
+    Passing env to the subprocess is NOT enough: commands run through the user's
+    zsh, whose startup files (~/.zshenv -> ~/.privateShell) unconditionally
+    re-export the proxy vars and clobber whatever we pass via env=. Re-exporting
+    inline -- AFTER the shell has sourced its startup files -- restores the proxy
+    the caller actually has set. If no proxy vars are present, returns "".
+    """
+    proxy = get_proxy_env()
+    if not proxy:
+        return ""
+    exports = " ".join(f"export {k}={shlex.quote(v)};" for k, v in proxy.items())
+    return exports + " "
+
+
+def node_cmd(body: str, cwd: Optional[Path] = None, extra_env: Optional[Dict[str, str]] = None) -> str:
+    """Wrap a command so it runs under nvm with the caller's proxy re-applied.
+
+    Loads nvm, selects NODE_VERSION (the repo has no .nvmrc), re-exports the
+    proxy inline so the user's zsh startup can't clobber it, applies any extra
+    env vars, then runs `body`.
+    """
+    parts = []
+    if cwd is not None:
+        parts.append(f"cd {shlex.quote(str(cwd))}")
+    parts.append("nvm-load")
+    parts.append(f"nvm use {NODE_VERSION}")
+    prefix = proxy_export_prefix()
+    env_assign = ""
+    if extra_env:
+        env_assign = " ".join(f"export {k}={shlex.quote(v)};" for k, v in extra_env.items()) + " "
+    parts.append(f"{prefix}{env_assign}{body}")
+    return " && ".join(parts)
 
 
 def tmux_kill_session(session_name: str):
@@ -287,16 +325,15 @@ def install_dependencies():
 
     print("⚠️  This may take a while with poor network connectivity...")
 
-    proxy_env = get_proxy_env()
-
     # Root dependencies (backend)
     if not backend_modules.exists():
         print("\n→ Installing backend dependencies...")
         print("   (pnpm will retry on network errors, please be patient)")
 
+        install_cmd = node_cmd("pnpm install --no-frozen-lockfile", cwd=PROJECT_ROOT)
         max_retries = 3
         for attempt in range(max_retries):
-            result = run_cmd("pnpm install --no-frozen-lockfile", env=proxy_env, check=False)
+            result = run_cmd(install_cmd, check=False)
             if result.returncode == 0:
                 break
             if attempt < max_retries - 1:
@@ -320,9 +357,10 @@ def install_dependencies():
         print("\n→ Installing frontend dependencies...")
         print("   (pnpm will retry on network errors, please be patient)")
 
+        install_cmd = node_cmd("pnpm install --no-frozen-lockfile", cwd=PROJECT_ROOT / "frontend")
         max_retries = 3
         for attempt in range(max_retries):
-            result = run_cmd("pnpm install --no-frozen-lockfile", cwd=PROJECT_ROOT / "frontend", env=proxy_env, check=False)
+            result = run_cmd(install_cmd, check=False)
             if result.returncode == 0:
                 break
             if attempt < max_retries - 1:
@@ -347,7 +385,7 @@ def install_dependencies():
 def build_frontend():
     """Build the frontend for production."""
     print("Building frontend...")
-    run_cmd("pnpm run build", cwd=PROJECT_ROOT / "frontend")
+    run_cmd(node_cmd("pnpm run build", cwd=PROJECT_ROOT / "frontend"))
     print("✓ Frontend built")
 
 
@@ -355,7 +393,7 @@ def start_backend(url: str):
     """Start the backend server."""
     print("Starting backend server...")
 
-    # Prepare environment
+    # Env passed both to tmux (-e) and re-exported inline so zsh can't clobber it
     env = get_proxy_env()
     env.update({
         'NODE_ENV': 'production',
@@ -363,11 +401,15 @@ def start_backend(url: str):
         'BASE_URL': url,
     })
 
-    # Build env string for tmux
-    env_str = " ".join([f'{k}="{v}"' for k, v in env.items()])
-
-    # Start command with nvm
-    cmd = f"cd {PROJECT_ROOT} && nvm-load && nvm use && {env_str} node backend/server.js"
+    cmd = node_cmd(
+        "node backend/server.js",
+        cwd=PROJECT_ROOT,
+        extra_env={
+            'NODE_ENV': 'production',
+            'PORT': str(BACKEND_PORT),
+            'BASE_URL': url,
+        },
+    )
 
     tmux_new_session(BACKEND_TMUX_SESSION, cmd, env)
     print(f"✓ Backend running on port {BACKEND_PORT}")
@@ -379,8 +421,7 @@ def start_frontend_dev():
 
     env = get_proxy_env()
 
-    # Start command with nvm
-    cmd = f"cd {PROJECT_ROOT}/frontend && nvm-load && nvm use && pnpm run dev"
+    cmd = node_cmd("pnpm run dev", cwd=PROJECT_ROOT / "frontend")
 
     tmux_new_session(FRONTEND_TMUX_SESSION, cmd, env)
     print(f"✓ Frontend dev server running on port {FRONTEND_DEV_PORT}")

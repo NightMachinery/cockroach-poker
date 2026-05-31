@@ -3,3 +3,9 @@ frontend/node_modules
 
 .env
 .vscode
+
+# self_host.py
+__pycache__/
+*.pyc
+.self_host_config.json
+backend/data/
