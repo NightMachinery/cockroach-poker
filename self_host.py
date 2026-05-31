@@ -275,16 +275,52 @@ def update_caddy_config(url: str, dev_mode: bool = False):
 def install_dependencies():
     """Install project dependencies."""
     print("Installing dependencies...")
+    print("⚠️  This may take a while with poor network connectivity...")
 
     proxy_env = get_proxy_env()
 
     # Root dependencies (backend)
     print("\n→ Installing backend dependencies...")
-    run_cmd("pnpm install", env=proxy_env)
+    print("   (pnpm will retry on network errors, please be patient)")
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        result = run_cmd("pnpm install --no-frozen-lockfile", env=proxy_env, check=False)
+        if result.returncode == 0:
+            break
+        if attempt < max_retries - 1:
+            print(f"   ⚠️  Install failed, retrying ({attempt + 2}/{max_retries})...")
+            import time
+            time.sleep(5)
+        else:
+            print("\n❌ Backend dependency installation failed after multiple retries.")
+            print("This is likely due to network connectivity issues.")
+            print("\nYou can:")
+            print("  1. Try running './self_host.py setup' again")
+            print("  2. Manually run: pnpm install")
+            print("  3. Check your proxy settings")
+            sys.exit(1)
 
     # Frontend dependencies
     print("\n→ Installing frontend dependencies...")
-    run_cmd("pnpm install", cwd=PROJECT_ROOT / "frontend", env=proxy_env)
+    print("   (pnpm will retry on network errors, please be patient)")
+
+    for attempt in range(max_retries):
+        result = run_cmd("pnpm install --no-frozen-lockfile", cwd=PROJECT_ROOT / "frontend", env=proxy_env, check=False)
+        if result.returncode == 0:
+            break
+        if attempt < max_retries - 1:
+            print(f"   ⚠️  Install failed, retrying ({attempt + 2}/{max_retries})...")
+            import time
+            time.sleep(5)
+        else:
+            print("\n❌ Frontend dependency installation failed after multiple retries.")
+            print("This is likely due to network connectivity issues.")
+            print("\nYou can:")
+            print("  1. Try running './self_host.py setup' again")
+            print("  2. Manually run: cd frontend && pnpm install")
+            print("  3. Check your proxy settings")
+            sys.exit(1)
 
     print("✓ Dependencies installed")
 
