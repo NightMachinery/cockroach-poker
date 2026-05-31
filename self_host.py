@@ -275,54 +275,73 @@ def update_caddy_config(url: str, dev_mode: bool = False):
 def install_dependencies():
     """Install project dependencies."""
     print("Installing dependencies...")
+
+    # Check if dependencies already exist
+    backend_modules = PROJECT_ROOT / "node_modules"
+    frontend_modules = PROJECT_ROOT / "frontend" / "node_modules"
+
+    if backend_modules.exists() and frontend_modules.exists():
+        print("✓ Dependencies already installed (node_modules found)")
+        print("  To reinstall, remove node_modules directories first")
+        return
+
     print("⚠️  This may take a while with poor network connectivity...")
 
     proxy_env = get_proxy_env()
 
     # Root dependencies (backend)
-    print("\n→ Installing backend dependencies...")
-    print("   (pnpm will retry on network errors, please be patient)")
+    if not backend_modules.exists():
+        print("\n→ Installing backend dependencies...")
+        print("   (pnpm will retry on network errors, please be patient)")
 
-    max_retries = 3
-    for attempt in range(max_retries):
-        result = run_cmd("pnpm install --no-frozen-lockfile", env=proxy_env, check=False)
-        if result.returncode == 0:
-            break
-        if attempt < max_retries - 1:
-            print(f"   ⚠️  Install failed, retrying ({attempt + 2}/{max_retries})...")
-            import time
-            time.sleep(5)
-        else:
-            print("\n❌ Backend dependency installation failed after multiple retries.")
-            print("This is likely due to network connectivity issues.")
-            print("\nYou can:")
-            print("  1. Try running './self_host.py setup' again")
-            print("  2. Manually run: pnpm install")
-            print("  3. Check your proxy settings")
-            sys.exit(1)
+        max_retries = 3
+        for attempt in range(max_retries):
+            result = run_cmd("pnpm install --no-frozen-lockfile", env=proxy_env, check=False)
+            if result.returncode == 0:
+                break
+            if attempt < max_retries - 1:
+                print(f"   ⚠️  Install failed, retrying ({attempt + 2}/{max_retries})...")
+                import time
+                time.sleep(5)
+            else:
+                print("\n❌ Backend dependency installation failed after multiple retries.")
+                print("This is likely due to network connectivity issues.")
+                print("\nYou can:")
+                print("  1. Try running './self_host.py setup' again")
+                print("  2. Manually run: pnpm install --no-frozen-lockfile")
+                print("  3. Check your proxy settings")
+                print("  4. See docs/troubleshooting-network.md for more solutions")
+                sys.exit(1)
+    else:
+        print("✓ Backend dependencies already installed")
 
     # Frontend dependencies
-    print("\n→ Installing frontend dependencies...")
-    print("   (pnpm will retry on network errors, please be patient)")
+    if not frontend_modules.exists():
+        print("\n→ Installing frontend dependencies...")
+        print("   (pnpm will retry on network errors, please be patient)")
 
-    for attempt in range(max_retries):
-        result = run_cmd("pnpm install --no-frozen-lockfile", cwd=PROJECT_ROOT / "frontend", env=proxy_env, check=False)
-        if result.returncode == 0:
-            break
-        if attempt < max_retries - 1:
-            print(f"   ⚠️  Install failed, retrying ({attempt + 2}/{max_retries})...")
-            import time
-            time.sleep(5)
-        else:
-            print("\n❌ Frontend dependency installation failed after multiple retries.")
-            print("This is likely due to network connectivity issues.")
-            print("\nYou can:")
-            print("  1. Try running './self_host.py setup' again")
-            print("  2. Manually run: cd frontend && pnpm install")
-            print("  3. Check your proxy settings")
-            sys.exit(1)
+        max_retries = 3
+        for attempt in range(max_retries):
+            result = run_cmd("pnpm install --no-frozen-lockfile", cwd=PROJECT_ROOT / "frontend", env=proxy_env, check=False)
+            if result.returncode == 0:
+                break
+            if attempt < max_retries - 1:
+                print(f"   ⚠️  Install failed, retrying ({attempt + 2}/{max_retries})...")
+                import time
+                time.sleep(5)
+            else:
+                print("\n❌ Frontend dependency installation failed after multiple retries.")
+                print("This is likely due to network connectivity issues.")
+                print("\nYou can:")
+                print("  1. Try running './self_host.py setup' again")
+                print("  2. Manually run: cd frontend && pnpm install --no-frozen-lockfile")
+                print("  3. Check your proxy settings")
+                print("  4. See docs/troubleshooting-network.md for more solutions")
+                sys.exit(1)
+    else:
+        print("✓ Frontend dependencies already installed")
 
-    print("✓ Dependencies installed")
+    print("✓ All dependencies installed")
 
 
 def build_frontend():
