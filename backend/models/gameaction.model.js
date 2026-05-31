@@ -1,42 +1,29 @@
-import mongoose from 'mongoose';
+// GameAction model for lowdb
+// GameAction is embedded in GameRoom, so this is just a schema definition
 
-/*
-* GameAction Schema *
-Represents an action taken by a player. 
-A GameAction is not standalone; they are used only in GameRoom.
+export const GameActionSchema = {
+  turnPlayer: String, // UUID of current turn player
+  prevPlayer: String, // UUID of previous player
+  conspiracy: Array, // Array of UUIDs who have seen the card
+  card: Number, // Current card in play
+  claim: Number, // Claimed card type
+};
 
-* Notes *
-References prevPlayer and turnPlayer by ObjectId to avoid redundancy.
-TODO: Possibly reference them by UUID or embedded instead.
-*/
-export const GameActionSchema = new mongoose.Schema({
-  // prevPlayer: The player who handed the card to the current player. If the turn is just starting, prevPlayer == turnPlayer.
-  prevPlayer: {
-    type: String,
-    required: true,
-  },
-  // turnPlayer: The player whose turn it is.
-  turnPlayer: {
-    type: String,
-    required: true,
-  },
-  // conspiracy: The list of players who have already seen the card.
-  conspiracy: {
-    type: [String],
-    required: true,
-  },
-  // card: The actual card being passed around.
-  card: {
-    type: Number,
-    required: true,
-  },
-  // claim: The claim prevPlayer made about the card.
-  claim: {
-    type: Number,
-    required: true,
-  },
-});
+export const createGameAction = (data) => {
+  return {
+    turnPlayer: data.turnPlayer || null,
+    prevPlayer: data.prevPlayer || null,
+    conspiracy: data.conspiracy || [],
+    card: data.card || null,
+    claim: data.claim || null,
+  };
+};
 
-const GameAction = mongoose.model('GameAction', GameActionSchema);
+// For compatibility
+class GameAction {
+  constructor(data) {
+    Object.assign(this, createGameAction(data));
+  }
+}
 
 export default GameAction;

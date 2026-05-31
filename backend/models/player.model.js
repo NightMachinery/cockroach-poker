@@ -1,50 +1,35 @@
-import mongoose from 'mongoose';
+// Player model for lowdb
+// Players are embedded in GameRoom, so this is just a schema definition
 
-/*
-* Player Schema *
-Represents a player in an active game and their cards.
-*/
-export const PlayerSchema = new mongoose.Schema({
-  // uuid: Unique id to identify players. Will be stored on the client (probably as a cookie).
-  uuid: {
-    type: String,
-    required: true,
-    unique: true,
-  },
-  // nickname: Player's chosen nickname.
-  nickname: {
-    type: String,
-    required: true,
-  },
-  // playerIcon: Player icon.
-  playerIcon: {
-    type: String,
-  },
-  // hand: Array of numbers representing cards in hand.
-  hand: {
-    type: [Number],
-    required: true,
-  },
-  // handSize: Hand size.
-  handSize: {
-    type: Number,
-    required: true,
-  },
-  // pile: Array of numbers representing cards face-up in front of the player.
-  pile: {
-    type: [Number],
-    required: true,
-  },
-  // pileSize: Pile size.
-  pileSize: {
-    type: Number,
-    required: true,
-  },
-  socketId: {
-    type: String,
-  },
-});
+export const PlayerSchema = {
+  uuid: String,
+  nickname: String,
+  playerIcon: String,
+  socketId: String,
+  hand: Array, // Array of card numbers
+  handSize: Number,
+  pile: Array, // Array of card numbers (face-up)
+  pileSize: Number,
+};
 
-const Player = mongoose.model('Player', PlayerSchema);
+export const createPlayer = (data) => {
+  return {
+    uuid: data.uuid,
+    nickname: data.nickname,
+    playerIcon: data.playerIcon || 'default',
+    socketId: data.socketId || null,
+    hand: data.hand || [],
+    handSize: data.handSize || 0,
+    pile: data.pile || [],
+    pileSize: data.pileSize || 0,
+  };
+};
+
+// For compatibility with existing code
+class Player {
+  constructor(data) {
+    Object.assign(this, createPlayer(data));
+  }
+}
 
 export default Player;

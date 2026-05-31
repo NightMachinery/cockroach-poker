@@ -1,4 +1,3 @@
-import mongoose from 'mongoose';
 import GameRoom from '../models/gameroom.model.js';
 
 export const getGameRoom = async (req, res) => {
@@ -31,7 +30,6 @@ export const getGameRooms = async (req, res) => {
 export const createGameRoom = async (req, res) => {
   const gameRoom = req.body; // user request body
 
-  // TODO: Add validation (may not be necessary with MongoDB automatic validation on .save())
   if (!gameRoom.roomCode) {
     return res
       .status(400)
@@ -57,18 +55,18 @@ export const updateGameRoom = async (req, res) => {
 
   const reqGameRoom = req.body;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    console.error(`Error while updating gameRoom: Invalid GameRoom ID`);
-    return res
-      .status(404)
-      .json({ success: false, message: 'Error: Invalid GameRoom ID' });
-  }
-
   try {
-    const updatedGameRoom = await GameRoom.findByIdAndUpdate(id, reqGameRoom, {
-      new: true,
-    });
-    res.status(200).json({ success: true, data: updatedGameRoom });
+    const gameRoom = await GameRoom.findById(id);
+    if (!gameRoom) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Error: GameRoom not found' });
+    }
+
+    Object.assign(gameRoom, reqGameRoom);
+    await gameRoom.save();
+
+    res.status(200).json({ success: true, data: gameRoom });
   } catch (error) {
     console.error(`Error while updating gameRoom: ${error.message}`);
     res.status(500).json({
@@ -81,15 +79,13 @@ export const updateGameRoom = async (req, res) => {
 export const deleteGameRoom = async (req, res) => {
   const { id } = req.params;
 
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    console.error(`Error while updating gameRoom: Invalid GameRoom ID`);
-    return res
-      .status(404)
-      .json({ success: false, message: 'Error: Invalid GameRoom ID' });
-  }
-
   try {
-    await GameRoom.findByIdAndDelete(id);
+    const result = await GameRoom.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Error: GameRoom not found' });
+    }
     res.status(200).json({ success: true, message: 'GameRoom deleted' });
   } catch (error) {
     console.error(`Error while deleting gameRoom: ${error.message}`);

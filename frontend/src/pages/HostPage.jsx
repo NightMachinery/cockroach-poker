@@ -13,10 +13,8 @@ import FlippingCard from '../components/FlippingCard.jsx';
 import { io } from 'socket.io-client';
 import AudioPlayer from '../components/AudioPlayer.jsx';
 
-const socketUrl = window.location.origin.includes('localhost')
-  ? 'http://localhost:8420'
-  : 'https://cockroach.poker';
-const socket = io(socketUrl, { autoConnect: false });
+// Use current origin for socket connection (Socket.IO will use ws/wss automatically)
+const socket = io(window.location.origin, { autoConnect: false });
 
 const HostPage = () => {
   const [message, setMessage] = useState('Connecting socket...');
@@ -203,7 +201,7 @@ const HostPage = () => {
                 textDecoration='underline'
                 sx={{ animation: `glow 5s ease-in-out infinite` }}
               >
-                cockroach.poker
+                {window.location.host}
               </Text>
             </Text>
 

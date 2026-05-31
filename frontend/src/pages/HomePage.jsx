@@ -12,10 +12,8 @@ import { useState, useEffect } from 'react';
 import { io } from 'socket.io-client';
 import { Link } from 'react-router-dom';
 
-const socketUrl = window.location.origin.includes('localhost')
-  ? 'http://localhost:8420'
-  : 'https://cockroach.poker';
-const socket = io(socketUrl, { autoConnect: false });
+// Use current origin for socket connection (Socket.IO will use ws/wss automatically)
+const socket = io(window.location.origin, { autoConnect: false });
 
 const HomePage = () => {
   const [message, setMessage] = useState('Connecting socket...');

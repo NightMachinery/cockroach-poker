@@ -7,10 +7,8 @@ import { Link as ReactRouterLink } from 'react-router-dom';
 import { Link as ChakraLink } from '@chakra-ui/react';
 import { useToast } from '@chakra-ui/react';
 
-const socketUrl = window.location.origin.includes('localhost')
-  ? 'http://localhost:8420'
-  : 'https://cockroach.poker';
-const socket = io(socketUrl, { autoConnect: false });
+// Use current origin for socket connection (Socket.IO will use ws/wss automatically)
+const socket = io(window.location.origin, { autoConnect: false });
 
 const cardEntrance = keyframes`
   0% {
@@ -275,7 +273,7 @@ const GamePage = () => {
           >
             Playing at{' '}
             <Text as={'span'} textDecoration='underline' color='#172d36'>
-              cockroach.poker
+              {window.location.host}
             </Text>
             ! Room:{' '}
             <Text

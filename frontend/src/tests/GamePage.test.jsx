@@ -46,8 +46,9 @@ describe('GamePage component', () => {
       </ChakraProvider>
     );
 
-    const title = screen.getByText(/cockroach.poker/);
-    expect(title).to.exist;
+    // Check that the page renders with "Playing at" text
+    const playingAtText = screen.getByText(/Playing at/);
+    expect(playingAtText).to.exist;
   });
 
   test('renders players images with names bmo and finn', async () => {

@@ -16,6 +16,9 @@ import path from 'path';
 dotenv.config();
 
 const app = express();
+
+// Set BASE_URL from environment or construct from PORT
+const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 8420}`;
 app.use(cors());
 
 const PORT = process.env.PORT || 8420;
