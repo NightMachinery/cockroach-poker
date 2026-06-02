@@ -185,95 +185,82 @@ def parse_url(url: str) -> tuple[str, str, bool]:
         return url, 'https', True
 
 
+def _caddy_site_body(dev_mode: bool) -> str:
+    """Inner directives shared by the primary site block.
+
+    Backend (socket.io) is reverse-proxied; everything else is either the Vite
+    dev server (dev) or the built static files served by Caddy (prod).
+    NOTE: Caddy placeholders like {uri} and {path} use SINGLE braces. Do not
+    f-string this text, so the braces stay literal.
+    """
+    backend = (
+        "\t@backend {\n"
+        "\t\tpath /socket.io*\n"
+        "\t}\n"
+        "\n"
+        "\thandle @backend {\n"
+        f"\t\treverse_proxy 127.0.0.1:{BACKEND_PORT}\n"
+        "\t}\n"
+    )
+
+    if dev_mode:
+        rest = (
+            "\n"
+            "\thandle {\n"
+            f"\t\treverse_proxy 127.0.0.1:{FRONTEND_DEV_PORT}\n"
+            "\t}\n"
+        )
+    else:
+        rest = (
+            "\n"
+            "\thandle {\n"
+            f"\t\troot * {PROJECT_ROOT}/frontend/dist\n"
+            "\t\ttry_files {path} /index.html\n"
+            "\t\tfile_server\n"
+            "\t}\n"
+        )
+
+    return backend + rest
+
+
 def generate_caddy_config(url: str, dev_mode: bool = False) -> str:
-    """Generate Caddy configuration block."""
+    """Generate the managed Caddy configuration block."""
     domain, protocol, is_https = parse_url(url)
 
-    config_lines = [CADDY_BEGIN_MARKER]
+    body = _caddy_site_body(dev_mode)
 
     if is_https:
-        # HTTPS primary block
-        config_lines.extend([
-            f"https://{domain} {{",
-            "\ttls internal",
-            "\tencode zstd gzip",
-            "",
-            "\t@backend {{",
-            "\t\tpath /socket.io*",
-            "\t}}",
-            "",
-            "\thandle @backend {{",
-            f"\t\treverse_proxy 127.0.0.1:{BACKEND_PORT}",
-            "\t}}",
-            "",
-        ])
-
-        if dev_mode:
-            # In dev mode, proxy everything else to Vite
-            config_lines.extend([
-                "\thandle {",
-                f"\t\treverse_proxy 127.0.0.1:{FRONTEND_DEV_PORT}",
-                "\t}",
-            ])
-        else:
-            # In prod mode, serve static files
-            config_lines.extend([
-                "\thandle {",
-                f"\t\troot * {PROJECT_ROOT}/frontend/dist",
-                "\t\ttry_files {{path}} /index.html",
-                "\t\tfile_server",
-                "\t}",
-            ])
-
-        config_lines.extend([
-            "}",
-            "",
-            f"http://{domain} {{",
-            f"\tredir https://{domain}{{uri}} permanent",
-            "}",
-        ])
+        primary = (
+            f"https://{domain} {{\n"
+            "\ttls internal\n"
+            "\tencode zstd gzip\n"
+            "\n"
+            f"{body}"
+            "}\n"
+        )
+        # Redirect HTTP -> HTTPS explicitly.
+        redirect = (
+            f"http://{domain} {{\n"
+            f"\tredir https://{domain}{{uri}} permanent\n"
+            "}\n"
+        )
     else:
-        # HTTP primary block
-        config_lines.extend([
-            f"http://{domain} {{",
-            "\tencode zstd gzip",
-            "",
-            "\t@backend {{",
-            "\t\tpath /socket.io*",
-            "\t}}",
-            "",
-            "\thandle @backend {{",
-            f"\t\treverse_proxy 127.0.0.1:{BACKEND_PORT}",
-            "\t}}",
-            "",
-        ])
+        primary = (
+            f"http://{domain} {{\n"
+            "\tencode zstd gzip\n"
+            "\n"
+            f"{body}"
+            "}\n"
+        )
+        # Redirect HTTPS -> HTTP explicitly.
+        redirect = (
+            f"https://{domain} {{\n"
+            "\ttls internal\n"
+            f"\tredir http://{domain}{{uri}} permanent\n"
+            "}\n"
+        )
 
-        if dev_mode:
-            config_lines.extend([
-                "\thandle {",
-                f"\t\treverse_proxy 127.0.0.1:{FRONTEND_DEV_PORT}",
-                "\t}",
-            ])
-        else:
-            config_lines.extend([
-                "\thandle {",
-                f"\t\troot * {PROJECT_ROOT}/frontend/dist",
-                "\t\ttry_files {{path}} /index.html",
-                "\t\tfile_server",
-                "\t}",
-            ])
-
-        config_lines.extend([
-            "}",
-            "",
-            f"https://{domain} {{",
-            "\ttls internal",
-            f"\tredir http://{domain}{{uri}} permanent",
-            "}",
-        ])
-
-    config_lines.append(CADDY_END_MARKER)
-    return "\n".join(config_lines)
+    return f"{CADDY_BEGIN_MARKER}\n{primary}\n{redirect}{CADDY_END_MARKER}"
 
 
 def update_caddy_config(url: str, dev_mode: bool = False):
