@@ -1,14 +1,12 @@
 import { Box, Text, Container, Image, HStack, VStack } from '@chakra-ui/react';
-import { io } from 'socket.io-client';
 import { useState, useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { keyframes } from '@emotion/react';
 import { Link as ReactRouterLink } from 'react-router-dom';
 import { Link as ChakraLink } from '@chakra-ui/react';
 import { useToast } from '@chakra-ui/react';
-
-// Use current origin for socket connection (Socket.IO will use ws/wss automatically)
-const socket = io(window.location.origin, { autoConnect: false });
+import { socket, bootstrapIdentity } from '../lib/socket.js';
+import RoomLinkButton from '../components/RoomLinkButton.jsx';
 
 const cardEntrance = keyframes`
   0% {
@@ -129,7 +127,9 @@ const avatarMap = {
 
 const getPlayerName = (players, givenUUID) => {
   const foundPlayer = players.find((p) => p.uuid == givenUUID);
-  return foundPlayer ? foundPlayer.nickname : 'Unknown Player';
+  return foundPlayer
+    ? foundPlayer.displayName || foundPlayer.nickname
+    : 'Unknown Player';
 };
 
 const GamePage = () => {
@@ -166,7 +166,7 @@ const GamePage = () => {
   // }, [turnPlayerId, gameRoom]);
 
   useEffect(() => {
-    if (!socket.connected) socket.connect();
+    bootstrapIdentity();
 
     socket.on('connect', () => {
       console.log(`Connected with id ${socket.id}`);
@@ -264,26 +264,19 @@ const GamePage = () => {
           position='relative'
           width='100%'
         >
-          <Text
-            position='absolute'
-            top='3'
-            fontSize='2xl'
-            fontWeight='bold'
-            color='#264653'
-          >
-            Playing at{' '}
-            <Text as={'span'} textDecoration='underline' color='#172d36'>
-              {window.location.host}
+          <HStack position='absolute' top='3' spacing={3} align='center'>
+            <Text fontSize='2xl' fontWeight='bold' color='#264653'>
+              Room:{' '}
+              <Text
+                as='span'
+                color='#FBC02D'
+                textShadow='0 0 1px #264653, 0 0 3px #000000, 0 0 15px #264653;'
+              >
+                {roomCode || 'N/A'}
+              </Text>
             </Text>
-            ! Room:{' '}
-            <Text
-              as='span'
-              color='#FBC02D'
-              textShadow={'0 0 1px #264653, 0 0 3px #000000, 0 0 15px #264653;'}
-            >
-              {roomCode || 'N/A'}
-            </Text>
-          </Text>
+            <RoomLinkButton roomCode={roomCode} size='sm' />
+          </HStack>
           {gameRoom ? (
             <Box
               width='90%'

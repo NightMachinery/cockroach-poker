@@ -10,10 +10,13 @@ import {
 } from '@chakra-ui/react';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
-
-// Use current origin for socket connection (Socket.IO will use ws/wss automatically)
-const socket = io(window.location.origin, { autoConnect: false });
+import { socket, bootstrapIdentity } from '../lib/socket.js';
+import {
+  getStoredName,
+  setStoredName,
+  getStoredAvatar,
+  setStoredAvatar,
+} from '../lib/identity.js';
 
 const avatars = [
   { name: 'baby-yoda', src: '/avatars/baby-yoda.png' },
@@ -29,24 +32,20 @@ const avatars = [
 
 const JoinPage = () => {
   const [roomCode, setRoomCode] = useState('');
-  const [nickname, setNickname] = useState('');
-  const [selectedAvatar, setSelectedAvatar] = useState(null);
+  const [nickname, setNickname] = useState(getStoredName());
+  const [selectedAvatar, setSelectedAvatar] = useState(
+    getStoredAvatar() || null
+  );
   const isMobile = useBreakpointValue({ base: true, md: false });
   const navigate = useNavigate();
   const toast = useToast();
 
   useEffect(() => {
-    if (!socket.connected) socket.connect();
+    bootstrapIdentity();
 
-    const handleReturnJoinPlayerToRoom = (success, returnedRoomCode, uuid) => {
+    const handleReturnJoinPlayerToRoom = (success, returnedRoomCode) => {
       if (success) {
-        navigate('/play', {
-          state: {
-            uuid: uuid,
-            roomCode: returnedRoomCode,
-            avatar: selectedAvatar,
-          },
-        });
+        navigate('/play', { state: { roomCode: returnedRoomCode } });
       } else {
         toast({
           title: 'Join Failed',
@@ -62,7 +61,7 @@ const JoinPage = () => {
     return () => {
       socket.off('returnJoinPlayerToRoom', handleReturnJoinPlayerToRoom);
     };
-  }, [selectedAvatar, navigate, toast]);
+  }, [navigate, toast]);
   const handleAvatarClick = (avatarName) => {
     setSelectedAvatar(avatarName);
   };
@@ -79,12 +78,15 @@ const JoinPage = () => {
       return;
     }
 
+    // Persist identity bits so the player is not re-prompted next time.
+    setStoredName(nickname.trim());
+    setStoredAvatar(selectedAvatar);
+
     socket.emit(
       'requestJoinPlayerToRoom',
       roomCode.trim().toUpperCase(),
       nickname.trim(),
-      selectedAvatar,
-      socket.id
+      selectedAvatar
     );
   };
 

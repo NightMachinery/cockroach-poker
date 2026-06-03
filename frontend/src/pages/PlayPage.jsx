@@ -31,12 +31,12 @@ import {
 } from '@chakra-ui/react';
 
 import { Navigate, useLocation } from 'react-router-dom';
-import { io } from 'socket.io-client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useToast } from '@chakra-ui/react';
-
-// Use current origin for socket connection (Socket.IO will use ws/wss automatically)
-const socket = io(window.location.origin, { autoConnect: false });
+import { socket, bootstrapIdentity, onUserId, getMyUserId } from '../lib/socket.js';
+import RoomLinkButton from '../components/RoomLinkButton.jsx';
+import PlayerList from '../components/PlayerList.jsx';
+import MigrateDeviceButton from '../components/MigrateDeviceButton.jsx';
 
 const PlayPage = () => {
   const toast = useToast();
@@ -46,8 +46,10 @@ const PlayPage = () => {
   const [socketReady, setSocketReady] = useState(false);
   const location = useLocation();
   const roomCode = location.state?.roomCode;
-  const uuid = location.state?.uuid;
-  const avatar = location.state?.avatar;
+  // Identity comes from the shared socket, not navigation state.
+  const [uuid, setUuid] = useState(null);
+  const uuidRef = useRef(null);
+  const [myUserId, setMyUserId] = useState(getMyUserId());
   const [selectedCard, setSelectedCard] = useState(null);
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const [claim, setClaim] = useState(0);
@@ -68,9 +70,6 @@ const PlayPage = () => {
   const [cardModalOpen, setCardModalOpen] = useState(false);
   const [showPile, setShowPile] = useState(false);
 
-  const handleJoinRoom = (roomCode) => {
-    socket.emit('joinSocketRoom', roomCode);
-  };
 
   const handleCardSelection = (card) => {
     setSelectedCard(card);
@@ -192,11 +191,11 @@ const PlayPage = () => {
   };
 
   useEffect(() => {
-    if (!socket.connected) {
-      socket.connect();
-    } else {
-      setMessage(`Connected with id ${socket.id}`);
-    }
+    bootstrapIdentity();
+    const offUser = onUserId((id) => {
+      setMyUserId(id);
+    });
+    if (socket.connected) setSocketReady(true);
 
     const handleConnect = () => {
       setMessage(`Connected with id ${socket.id}`);
@@ -204,7 +203,7 @@ const PlayPage = () => {
     };
 
     const handleReturnNewRound = (loserId, loserName) => {
-      if (loserId === uuid) {
+      if (loserId === uuidRef.current) {
         toast({
           title: 'You lost the round! Go again.',
           status: 'info',
@@ -222,13 +221,8 @@ const PlayPage = () => {
     };
 
     const handleReturnPlayer = (player) => {
-      if (!player) {
-        console.error('Received player: null');
-        return;
-      }
-
-      const avatarName = location.state?.avatar;
-      player.avatar = avatarMap[avatarName] || '/avatars/default.png';
+      if (!player) return;
+      player.avatar = avatarMap[player.playerIcon] || '/avatars/default.png';
       setPlayer(player);
     };
 
@@ -241,21 +235,30 @@ const PlayPage = () => {
       setPlayers(gameRoom.players || []);
       setGameRoom(gameRoom);
       setCurrentAction(gameRoom.currentAction);
-      //console.log('Received GameRoom:');
-      //console.log(gameRoom);
 
+      // Find my own player by identity (userId), and learn my in-game uuid.
+      const meId = getMyUserId();
+      let mine = null;
       for (const p of gameRoom.players) {
-        if (p.uuid === uuid) {
-          setPlayer(p);
+        if (meId && p.userId === meId) {
+          mine = p;
           break;
         }
       }
+      if (mine) {
+        setPlayer(mine);
+        setUuid(mine.uuid);
+        uuidRef.current = mine.uuid;
 
-      const currentAction = gameRoom.currentAction;
-      if (currentAction && currentAction.turnPlayer === uuid) {
-        setIsMyTurn(true);
-        if (currentAction.prevPlayer === uuid) {
-          setIsFirstTurnInGameAction(true);
+        const currentAction = gameRoom.currentAction;
+        if (currentAction && currentAction.turnPlayer === mine.uuid) {
+          setIsMyTurn(true);
+          if (currentAction.prevPlayer === mine.uuid) {
+            setIsFirstTurnInGameAction(true);
+          }
+        } else {
+          setIsMyTurn(false);
+          setIsFirstTurnInGameAction(false);
         }
       }
     };
@@ -266,6 +269,7 @@ const PlayPage = () => {
     socket.on('returnNewRound', handleReturnNewRound);
 
     return () => {
+      offUser();
       socket.off('connect', handleConnect);
       socket.off('returnPlayer', handleReturnPlayer);
       socket.off('returnGameRoom', handleReturnGameRoom);
@@ -282,20 +286,37 @@ const PlayPage = () => {
     }
   }, [isMyTurn, isFirstTurnInGameAction]);
 
-  // TODO: Remove
+  // Once connected, identified, and we know the room: join (idempotent — the
+  // server returns our existing player if we're already a member, so this also
+  // handles refresh/reconnect) and subscribe to room broadcasts.
   useEffect(() => {
-    if (socketReady && roomCode && uuid) {
-      socket.emit('getPlayer', roomCode, uuid);
-      socket.emit('setSocketId', roomCode, uuid, socket.id);
+    if (socketReady && roomCode && myUserId) {
+      const storedName = (() => {
+        try {
+          return localStorage.getItem('cp_name') || '';
+        } catch {
+          return '';
+        }
+      })();
+      const storedAvatar = (() => {
+        try {
+          return localStorage.getItem('cp_avatar') || 'jake';
+        } catch {
+          return 'jake';
+        }
+      })();
+      socket.emit('requestJoinPlayerToRoom', roomCode, storedName, storedAvatar);
+      socket.emit('joinSocketRoom', roomCode);
       socket.emit('requestGameRoom', roomCode);
     }
-  }, [socketReady, location]);
+  }, [socketReady, roomCode, myUserId]);
 
+  // Keep our socketId fresh on the server once we know our in-game uuid.
   useEffect(() => {
-    if (uuid) {
-      handleJoinRoom(roomCode);
+    if (uuid && roomCode) {
+      socket.emit('setSocketId', roomCode, uuid, socket.id);
     }
-  }, [uuid]);
+  }, [uuid, roomCode]);
 
   const CardNumberToString = {
     0: 'Unknown',
@@ -453,12 +474,8 @@ const PlayPage = () => {
         textAlign='center'
         overflowY='auto'
       >
-        {!uuid ? (
-          <Navigate
-            to='/rejoin'
-            replace
-            state={{ uuid: uuid, roomCode: roomCode }}
-          />
+        {!roomCode ? (
+          <Navigate to='/' replace />
         ) : player ? (
           <Stack spacing={3} width='100%'>
             {player && (
@@ -571,14 +588,28 @@ const PlayPage = () => {
               <>
                 <Text fontSize='xl'>
                   Waiting for the host to start the game...
-                </Text>{' '}
-                <Text fontSize='xl'>
-                  Players:{' '}
-                  <Text as='span' fontWeight={'semibold'}>
-                    {gameRoom.numPlayers}
-                    /6
-                  </Text>
                 </Text>
+                <HStack justify='center' spacing={2} mb={2}>
+                  <RoomLinkButton roomCode={roomCode} size='sm' />
+                  {myUserId && (
+                    <MigrateDeviceButton
+                      roomCode={roomCode}
+                      targetUserId={myUserId}
+                    />
+                  )}
+                </HStack>
+                <Box
+                  width='100%'
+                  bg='whiteAlpha.700'
+                  borderRadius='md'
+                  p={3}
+                  mb={2}
+                >
+                  <Text fontWeight='bold' color='#264653' mb={2}>
+                    Players ({gameRoom.numPlayers})
+                  </Text>
+                  <PlayerList room={gameRoom} me={myUserId} />
+                </Box>
               </>
             )}
             {isMyTurn ? (
