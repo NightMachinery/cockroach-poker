@@ -6,10 +6,22 @@ import {
   Cards,
   GAME_ROOM_PREFIX,
   GameStatus,
+  Roles,
+  NO_MODS_TIMEOUT_MS,
 } from './utilities/constants.js';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { GameRoomService } from './services/gameroom.service.js';
+import {
+  tokenToUserId,
+  newAuthToken,
+} from './utilities/identity.js';
+import {
+  findUserByToken,
+  findUserById,
+  upsertUser,
+  setUserName,
+} from './models/user.model.js';
 import cors from 'cors';
 import path from 'path';
 
@@ -55,13 +67,98 @@ const dbReady = (async () => {
   await gameRoomService.initializeGameRoomMap();
 })();
 
+// Broadcast the sanitized (secret-free) room to everyone in it.
+const broadcastGameRoom = (roomCode) => {
+  const room = gameRoomService.publicGameRoom(roomCode);
+  if (room) io.to(GAME_ROOM_PREFIX + roomCode).emit('returnGameRoom', room);
+};
+
+// ===== Temp-mod "no mods online" timers (per room) =====
+const noModTimers = new Map(); // roomCode -> timeout handle
+
+const clearNoModTimer = (roomCode) => {
+  const t = noModTimers.get(roomCode);
+  if (t) {
+    clearTimeout(t);
+    noModTimers.delete(roomCode);
+  }
+};
+
+// Recompute mod presence for a room and manage the temp-mod lifecycle:
+// - If a real mod is online: revoke any temp mods and cancel the timer.
+// - If no real mod is online: start a timer that promotes a temp mod on expiry.
+const evaluateMods = (roomCode) => {
+  const gameRoom = gameRoomService.getGameRoom(roomCode);
+  if (!gameRoom) {
+    clearNoModTimer(roomCode);
+    return;
+  }
+
+  if (gameRoomService.anyRealModOnline(roomCode)) {
+    clearNoModTimer(roomCode);
+    const changed = gameRoomService.revokeTempMods(roomCode);
+    if (changed) {
+      gameRoomService.saveGameRoom(roomCode);
+      broadcastGameRoom(roomCode);
+    }
+    return;
+  }
+
+  // No real mod online. If a temp mod already holds power, nothing to do.
+  const hasTempMod = gameRoom.players.some(
+    (p) => p.online && p.role === Roles.TEMP_MOD
+  );
+  if (hasTempMod) {
+    clearNoModTimer(roomCode);
+    return;
+  }
+
+  // Otherwise arm the timer (once) to promote a temp mod after the timeout.
+  if (!noModTimers.has(roomCode)) {
+    const handle = setTimeout(() => {
+      noModTimers.delete(roomCode);
+      const chosen = gameRoomService.promoteTempMod(roomCode);
+      if (chosen) {
+        gameRoomService.saveGameRoom(roomCode);
+        broadcastGameRoom(roomCode);
+      }
+    }, NO_MODS_TIMEOUT_MS);
+    noModTimers.set(roomCode, handle);
+  }
+};
+
 io.on('connection', (socket) => {
   console.log(`Socket ${socket.id} connected.`);
 
+  // Tracks which (room, user) this socket is present in, for disconnect.
+  socket.data.rooms = new Set();
+
   const sendGameRoomToEveryoneInRoom = (roomCode) => {
-    const gameRoom = gameRoomService.getGameRoom(roomCode);
-    io.to(GAME_ROOM_PREFIX + roomCode).emit('returnGameRoom', gameRoom);
+    broadcastGameRoom(roomCode);
   };
+
+  // identify: resolve/create the user behind this device's auth token and
+  // remember the chosen display name. The token never leaves the client except
+  // to this handler; everything else references the derived userId.
+  socket.on('identify', async (token, name) => {
+    try {
+      let authToken = token;
+      if (!authToken) authToken = newAuthToken();
+      const userId = tokenToUserId(authToken);
+      await upsertUser({ userId, token: authToken, name });
+      socket.data.userId = userId;
+      socket.data.authToken = authToken;
+      const user = await findUserById(userId);
+      socket.emit('identity', {
+        userId,
+        name: user?.name || name || null,
+        // Echo back a token if we minted one for a tokenless client.
+        token: token ? undefined : authToken,
+      });
+    } catch (err) {
+      console.error('identify error:', err);
+    }
+  });
 
   const sendNewRoundInfoToEveryoneInRoom = (roomCode) => {
     const gameRoom = gameRoomService.getGameRoom(roomCode);
@@ -84,52 +181,113 @@ io.on('connection', (socket) => {
   // requestGameRoom: request for GameRoom data from a host
   socket.on('requestGameRoom', async (roomCode) => {
     console.log(`Socket ${socket.id} requested GameRoom info for ${roomCode}`);
-    const gameRoom = gameRoomService.getGameRoom(roomCode);
-    socket.emit('returnGameRoom', gameRoom);
+    socket.emit('returnGameRoom', gameRoomService.publicGameRoom(roomCode));
   });
 
-  // requestCreateEmptyGameRoom: request to create an empty GameRoom and return it
+  // requestCreateEmptyGameRoom: create an empty GameRoom. The requesting user
+  // becomes the room creator/owner once they join as a player.
   socket.on('requestCreateEmptyGameRoom', async () => {
     console.log(`Socket ${socket.id} requested to create an empty GameRoom`);
     const gameRoom = gameRoomService.createEmptyGameRoom();
-    socket.emit('returnEmptyGameRoom', gameRoom);
+    // Pre-assign the creator so the first joiner is guaranteed to be owner even
+    // if they are momentarily beaten to it; the actual creator player record is
+    // created on join.
+    if (socket.data.userId) {
+      gameRoom.creatorUserId = socket.data.userId;
+    }
+    socket.emit('returnEmptyGameRoom', gameRoomService.publicGameRoom(gameRoom.roomCode));
   });
 
   socket.on('requestStartGame', async (roomCode) => {
     console.log(`Socket ${socket.id} requested to start game ${roomCode}`);
+    // Only a user with mod powers (creator/mod/temp mod) may start the game.
+    const actor = gameRoomService.getPlayerByUserId(
+      roomCode,
+      socket.data.userId
+    );
+    if (!gameRoomService.hasModPower(actor)) {
+      socket.emit('actionError', 'Only a mod can start the game');
+      return;
+    }
     gameRoomService.startGame(roomCode);
+    gameRoomService.saveGameRoom(roomCode);
     console.log(`Emitting returnStartGame for room ${roomCode}`);
     socket.emit('returnStartGame', roomCode);
     sendGameRoomToEveryoneInRoom(roomCode);
   });
 
-  // requestJoinPlayerToRoom: request to create a new player in a GameRoom that is in SETUP
+  // requestJoinPlayerToRoom: join (or rejoin) a room under the caller's
+  // identity. No client-supplied uuid: the server derives it from the
+  // authenticated userId, so refresh/reconnect never duplicates a player.
   socket.on(
     'requestJoinPlayerToRoom',
-    async (roomCode, nickname, playerIcon, socketId) => {
+    async (roomCode, nickname, playerIcon) => {
+      const userId = socket.data.userId;
       const gameRoom = gameRoomService.getGameRoom(roomCode);
-      if (
-        !gameRoom ||
-        gameRoom.gameStatus != GameStatus.SETUP ||
-        gameRoom.numPlayers > 6 ||
-        nickname.length > 16
-      ) {
+      const existing = userId
+        ? gameRoomService.getPlayerByUserId(roomCode, userId)
+        : null;
+
+      // Allow joining during SETUP, or rejoining at any time if already a member.
+      const canJoin =
+        gameRoom &&
+        userId &&
+        (nickname || '').length <= 16 &&
+        (existing ||
+          (gameRoom.gameStatus === GameStatus.SETUP &&
+            gameRoom.numPlayers <= 6));
+
+      if (!canJoin) {
         socket.emit('returnJoinPlayerToRoom', false, null, null);
-      } else {
-        const uuid = gameRoomService.addPlayerToGameRoom(
-          roomCode,
-          nickname,
-          playerIcon,
-          socketId
-        );
-        socket.emit('returnJoinPlayerToRoom', true, roomCode, uuid);
-        const updatedGameRoom = gameRoomService.getGameRoom(roomCode);
-        socket
-          .to(GAME_ROOM_PREFIX + roomCode)
-          .emit('returnGameRoom', updatedGameRoom);
+        return;
       }
+
+      const player = gameRoomService.joinOrGetPlayer(
+        roomCode,
+        userId,
+        nickname,
+        playerIcon,
+        socket.id
+      );
+      socket.join(GAME_ROOM_PREFIX + roomCode);
+      socket.data.rooms.add(roomCode);
+      gameRoomService.saveGameRoom(roomCode);
+
+      socket.emit('returnJoinPlayerToRoom', true, roomCode, player.uuid);
+      evaluateMods(roomCode);
+      broadcastGameRoom(roomCode);
     }
   );
+
+  // joinWithMigrate: adopt the identity referenced by a room-scoped migrate id.
+  // Binds this device's auth token to that room player's userId, then joins.
+  socket.on('joinWithMigrate', async (roomCode, migrateId) => {
+    const targetUserId = gameRoomService.resolveMigrate(roomCode, migrateId);
+    if (!targetUserId) {
+      socket.emit('returnJoinPlayerToRoom', false, null, null);
+      return;
+    }
+    // This device now acts as targetUserId for this session. Rebind the token
+    // record so the migrated identity sticks to this device too.
+    socket.data.userId = targetUserId;
+    if (socket.data.authToken) {
+      await upsertUser({ userId: targetUserId, token: socket.data.authToken });
+    }
+    const player = gameRoomService.joinOrGetPlayer(
+      roomCode,
+      targetUserId,
+      null,
+      null,
+      socket.id
+    );
+    socket.join(GAME_ROOM_PREFIX + roomCode);
+    socket.data.rooms.add(roomCode);
+    gameRoomService.saveGameRoom(roomCode);
+    socket.emit('returnJoinPlayerToRoom', true, roomCode, player.uuid);
+    socket.emit('identity', { userId: targetUserId, name: player.nickname });
+    evaluateMods(roomCode);
+    broadcastGameRoom(roomCode);
+  });
 
   // checkJoinCode: checks if the room exists for a roomCode, from player
   socket.on('checkJoinCode', async (roomCode) => {
@@ -148,14 +306,85 @@ io.on('connection', (socket) => {
     socket.emit('receiveJoinCode', roomExists);
   });
 
-  // joinSocketRoom: socket room join; only used by hosts as of now
+  // joinSocketRoom: subscribe this socket to a room's broadcasts. If the socket
+  // has an identity that is a player in the room, mark them online.
   socket.on('joinSocketRoom', async (roomCode) => {
     socket.join(GAME_ROOM_PREFIX + roomCode);
+    socket.data.rooms.add(roomCode);
     console.log(
       `Socket ${socket.id} joined room ${GAME_ROOM_PREFIX + roomCode}`
     );
-    const gameRoom = gameRoomService.getGameRoom(roomCode);
-    socket.emit('returnGameRoom', gameRoom);
+    if (socket.data.userId) {
+      const player = gameRoomService.setOnlineByUserId(
+        roomCode,
+        socket.data.userId,
+        true
+      );
+      if (player) {
+        gameRoomService.saveGameRoom(roomCode);
+        evaluateMods(roomCode);
+      }
+    }
+    broadcastGameRoom(roomCode);
+  });
+
+  // requestSetRole: promote/demote a player (authorization enforced server-side)
+  socket.on('requestSetRole', (roomCode, targetUserId, newRole) => {
+    const res = gameRoomService.setRole(
+      roomCode,
+      socket.data.userId,
+      targetUserId,
+      newRole
+    );
+    if (res.ok) {
+      gameRoomService.saveGameRoom(roomCode);
+      evaluateMods(roomCode);
+      broadcastGameRoom(roomCode);
+    } else {
+      socket.emit('actionError', res.error);
+    }
+  });
+
+  // requestSetObserver: move a player to/from observer (self or mod)
+  socket.on('requestSetObserver', (roomCode, targetUserId, observe) => {
+    const res = gameRoomService.setObserver(
+      roomCode,
+      socket.data.userId,
+      targetUserId,
+      observe
+    );
+    if (res.ok) {
+      gameRoomService.saveGameRoom(roomCode);
+      broadcastGameRoom(roomCode);
+    } else {
+      socket.emit('actionError', res.error);
+    }
+  });
+
+  // requestMigrateLink: get a room-scoped migrate id for a target player.
+  // Allowed for self, or for any user with mod powers.
+  socket.on('requestMigrateLink', (roomCode, targetUserId) => {
+    const actor = gameRoomService.getPlayerByUserId(
+      roomCode,
+      socket.data.userId
+    );
+    const isSelf = socket.data.userId === targetUserId;
+    if (!isSelf && !gameRoomService.hasModPower(actor)) {
+      socket.emit('actionError', 'Not authorized');
+      return;
+    }
+    const target = gameRoomService.getPlayerByUserId(roomCode, targetUserId);
+    if (!target) {
+      socket.emit('actionError', 'Player not found');
+      return;
+    }
+    const migrateId = gameRoomService.getMigrateIdFor(roomCode, targetUserId);
+    socket.emit('returnMigrateLink', {
+      roomCode,
+      targetUserId,
+      migrateId,
+      displayName: gameRoomService.displayName(target),
+    });
   });
 
   // selectAvatar: update avatar in memory (no DB call)
@@ -334,7 +563,42 @@ io.on('connection', (socket) => {
       console.warn('gameRoomService.callCard() failed');
     }
   });
+
+  // On disconnect, mark this identity offline in every room it was present in,
+  // then re-evaluate mod presence (may arm the temp-mod timer).
+  socket.on('disconnect', () => {
+    console.log(`Socket ${socket.id} disconnected.`);
+    const userId = socket.data.userId;
+    if (!userId) return;
+    for (const roomCode of socket.data.rooms) {
+      // Only flip offline if no other socket for this user is still in the room.
+      const stillConnected = anyOtherSocketForUserInRoom(
+        roomCode,
+        userId,
+        socket.id
+      );
+      if (stillConnected) continue;
+      const player = gameRoomService.setOnlineByUserId(roomCode, userId, false);
+      if (player) {
+        gameRoomService.saveGameRoom(roomCode);
+        evaluateMods(roomCode);
+        broadcastGameRoom(roomCode);
+      }
+    }
+  });
 });
+
+// True if some socket OTHER than excludeId belongs to userId and is in the room.
+function anyOtherSocketForUserInRoom(roomCode, userId, excludeId) {
+  const room = io.sockets.adapter.rooms.get(GAME_ROOM_PREFIX + roomCode);
+  if (!room) return false;
+  for (const sid of room) {
+    if (sid === excludeId) continue;
+    const s = io.sockets.sockets.get(sid);
+    if (s && s.data && s.data.userId === userId) return true;
+  }
+  return false;
+}
 // Wait for the database to be ready before accepting connections.
 dbReady.then(() => {
   server.listen(PORT, () => {

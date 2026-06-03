@@ -11,6 +11,10 @@ export const createGameRoom = (data) => {
     currentAction: data.currentAction || null,
     deck: data.deck || [],
     deckSize: data.deckSize || 0,
+    // Identity/roles support:
+    creatorUserId: data.creatorUserId || null, // immutable room owner
+    migrateMap: data.migrateMap || {}, // roomMigrateId -> userId (server only)
+    nameSeq: data.nameSeq || {}, // base nickname -> next disambiguation number
     createdAt: data.createdAt || new Date().toISOString(),
     updatedAt: data.updatedAt || new Date().toISOString(),
   };

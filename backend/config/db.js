@@ -16,7 +16,7 @@ try {
 
 const file = join(dataDir, 'gamerooms.json');
 const adapter = new JSONFile(file);
-const defaultData = { gameRooms: [] };
+const defaultData = { gameRooms: [], users: [], meta: {} };
 
 let db = null;
 
@@ -27,6 +27,10 @@ export const connectDB = async () => {
 
     // Initialize with default data if file is empty
     db.data ||= defaultData;
+    // Backfill new collections for databases created before they existed
+    db.data.gameRooms ||= [];
+    db.data.users ||= [];
+    db.data.meta ||= {};
 
     await db.write();
     console.log(`Database Connected: ${file}`);

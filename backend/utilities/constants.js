@@ -67,7 +67,35 @@ export const CardNumberToImage = {
   8: '/cards/stinkbug.png',
 };
 /*
-GAME_ROOM_PREFIX 
+GAME_ROOM_PREFIX
 Prefix for socket.io rooms. For example, game:123B
 */
 export const GAME_ROOM_PREFIX = 'game:';
+
+/*
+Roles
+- CREATOR: room owner. Fixed at creation, never transfers. Full powers.
+- MOD: promoted moderator. Can promote others to MOD and demote those they
+  themselves promoted.
+- TEMP_MOD: auto-promoted when no real mods are online. Full mod powers while
+  active; demoted back to PLAYER when a real mod returns, but keeps the
+  "ever temp mod" designation.
+- PLAYER: normal participant.
+- OBSERVER: not dealt cards; watching only. Can rejoin as a player.
+*/
+export const Roles = {
+  CREATOR: 'creator',
+  MOD: 'mod',
+  TEMP_MOD: 'temp_mod',
+  PLAYER: 'player',
+  OBSERVER: 'observer',
+};
+
+// Roles that count as "a real mod is present" (creator or promoted mod).
+export const REAL_MOD_ROLES = [Roles.CREATOR, Roles.MOD];
+
+// Roles that wield moderator powers (includes temp mods).
+export const MOD_POWER_ROLES = [Roles.CREATOR, Roles.MOD, Roles.TEMP_MOD];
+
+// If no real mod is online, promote a temp mod after this delay.
+export const NO_MODS_TIMEOUT_MS = 5 * 60 * 1000;
