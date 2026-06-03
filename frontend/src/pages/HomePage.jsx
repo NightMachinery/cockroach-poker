@@ -6,7 +6,6 @@ import {
   VStack,
   HStack,
   Input,
-  useBreakpointValue,
   useToast,
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
@@ -25,7 +24,6 @@ const DEFAULT_AVATAR = 'jake';
 const HomePage = () => {
   const navigate = useNavigate();
   const toast = useToast();
-  const isMobile = useBreakpointValue({ base: true, md: false });
 
   // Auto-join state (when arriving via an invite/migrate link).
   const [autoParams] = useState(() => getRoomParamsFromUrl());
@@ -202,7 +200,6 @@ const HomePage = () => {
                 width='100%'
                 fontSize={{ base: '5vw', sm: '4vw', md: '3vw', lg: '2.5vw', xl: '2vw' }}
                 py='6'
-                isDisabled={isMobile}
               >
                 CREATE
               </Button>
