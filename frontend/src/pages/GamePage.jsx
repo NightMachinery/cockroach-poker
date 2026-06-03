@@ -264,7 +264,7 @@ const GamePage = () => {
           position='relative'
           width='100%'
         >
-          <HStack position='absolute' top='3' spacing={3} align='center'>
+          <HStack position='absolute' top='3' left='4' spacing={3} align='center'>
             <Text fontSize='2xl' fontWeight='bold' color='#264653'>
               Room:{' '}
               <Text

@@ -123,8 +123,9 @@ const HostPage = () => {
       alignItems='center'
       minH='100vh'
     >
-      {/* Top corner copy-invite button */}
-      <Box position='absolute' top={3} right={3} zIndex={10}>
+      {/* Top corner copy-invite button. Offset on md+ so it clears the
+          fixed mute button in the top-right corner (App.jsx AudioPlayer). */}
+      <Box position='absolute' top={3} right={{ base: 3, md: '88px' }} zIndex={10}>
         <RoomLinkButton roomCode={roomCode} size='sm' />
       </Box>
 
