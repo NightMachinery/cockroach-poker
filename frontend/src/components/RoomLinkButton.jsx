@@ -1,12 +1,19 @@
-import { Button, useToast } from '@chakra-ui/react';
-import { FiLink, FiCheck } from 'react-icons/fi';
+import { Button, IconButton, Tooltip, useToast } from '@chakra-ui/react';
+import { FiClipboard, FiCheck } from 'react-icons/fi';
 import { useState } from 'react';
 import { buildRoomLink } from '../lib/identity.js';
 import { copyText } from '../lib/clipboard.js';
 
-// Stylish button that copies an auto-join link for the room. The link opens the
-// app with ?room=CODE, which auto-joins the visitor into the room.
-export default function RoomLinkButton({ roomCode, size = 'md', ...rest }) {
+// Copies an auto-join link for the room. The link opens the app with
+// ?room=CODE, which auto-joins the visitor.
+// - iconOnly: compact circular clipboard-icon button (used in the top corner).
+// - otherwise: a labeled pill button.
+export default function RoomLinkButton({
+  roomCode,
+  size = 'md',
+  iconOnly = false,
+  ...rest
+}) {
   const toast = useToast();
   const [copied, setCopied] = useState(false);
 
@@ -34,10 +41,29 @@ export default function RoomLinkButton({ roomCode, size = 'md', ...rest }) {
     }
   };
 
+  if (iconOnly) {
+    return (
+      <Tooltip label='Copy invite link' hasArrow>
+        <IconButton
+          aria-label='Copy invite link'
+          icon={copied ? <FiCheck /> : <FiClipboard />}
+          onClick={handleCopy}
+          size={size}
+          isRound
+          bg='#E9C46A'
+          color='#264653'
+          boxShadow='md'
+          _hover={{ bg: '#E76F51', color: 'white' }}
+          {...rest}
+        />
+      </Tooltip>
+    );
+  }
+
   return (
     <Button
       onClick={handleCopy}
-      leftIcon={copied ? <FiCheck /> : <FiLink />}
+      leftIcon={copied ? <FiCheck /> : <FiClipboard />}
       size={size}
       bg='#E9C46A'
       color='#264653'

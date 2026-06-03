@@ -232,18 +232,6 @@ const HomePage = () => {
           transform={{ base: 'rotate(15deg)', md: 'rotate(20deg)' }}
         />
       </HStack>
-      <Box position='absolute' bottom='2%' left='2%'>
-        <Button
-          as={Link}
-          to='/credits'
-          size='sm'
-          bg='#264653'
-          color='white'
-          _hover={{ bg: '#1b3130' }}
-        >
-          Credits
-        </Button>
-      </Box>
     </Box>
   );
 };

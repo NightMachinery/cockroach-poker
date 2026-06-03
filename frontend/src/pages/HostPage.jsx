@@ -123,11 +123,27 @@ const HostPage = () => {
       alignItems='center'
       minH='100vh'
     >
-      {/* Top corner copy-invite button. Offset on md+ so it clears the
-          fixed mute button in the top-right corner (App.jsx AudioPlayer). */}
-      <Box position='absolute' top={3} right={{ base: 3, md: '88px' }} zIndex={10}>
-        <RoomLinkButton roomCode={roomCode} size='sm' />
-      </Box>
+      {/* Top corner: icon-only copy-invite + migrate-device buttons. Offset on
+          md+ so they clear the fixed mute button in the top-right corner
+          (App.jsx AudioPlayer, which is hidden on mobile). */}
+      <HStack
+        position='absolute'
+        top={3}
+        right={{ base: 3, md: '116px' }}
+        spacing={2}
+        zIndex={10}
+      >
+        <RoomLinkButton roomCode={roomCode} size='md' iconOnly />
+        {myUserId && (
+          <MigrateDeviceButton
+            roomCode={roomCode}
+            targetUserId={myUserId}
+            iconOnly
+            size='md'
+            isRound
+          />
+        )}
+      </HStack>
 
       <Grid
         templateColumns='repeat(3, 1fr)'
@@ -160,24 +176,6 @@ const HostPage = () => {
         >
           Start Game ({gameRoom?.numPlayers ?? 0} players)
         </Button>
-
-        <Text fontSize={{ base: '5vw', md: '2.2vw' }} color='#264653' fontWeight='bold' mb={2}>
-          Room Code:{' '}
-          <Text
-            as='span'
-            color='#FBC02D'
-            textShadow='0 0 1px #264653, 0 0 3px #000000, 0 0 15px #264653;'
-          >
-            {roomCode || 'N/A'}
-          </Text>
-        </Text>
-
-        <HStack mb={4}>
-          <RoomLinkButton roomCode={roomCode} size='sm' />
-          {myUserId && (
-            <MigrateDeviceButton roomCode={roomCode} targetUserId={myUserId} />
-          )}
-        </HStack>
 
         {/* Players + mod controls */}
         <Box width='100%' bg='whiteAlpha.800' borderRadius='md' p={3} mb={6}>
