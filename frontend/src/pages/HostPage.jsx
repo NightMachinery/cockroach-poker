@@ -6,7 +6,6 @@ import {
   Button,
   Container,
   Image,
-  VStack,
   HStack,
 } from '@chakra-ui/react';
 import { useNavigate, useLocation, Navigate } from 'react-router-dom';
@@ -37,7 +36,7 @@ const HostPage = () => {
     const offUser = onUserId(setMyUserId);
 
     const handleReturnGameRoom = (gr) => setGameRoom(gr);
-    const handleReturnStartGame = (rc) => navigate('/game', { state: { roomCode: rc } });
+    const handleReturnStartGame = (rc) => navigate('/play', { state: { roomCode: rc } });
 
     socket.on('returnGameRoom', handleReturnGameRoom);
     socket.on('returnStartGame', handleReturnStartGame);

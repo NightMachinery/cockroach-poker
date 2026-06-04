@@ -60,8 +60,11 @@ export default function MigrateDeviceButton({
           aria-label='Copy migration link'
           icon={<FiSmartphone />}
           size='sm'
-          variant='ghost'
-          colorScheme='teal'
+          variant='solid'
+          bg='#E9C46A'
+          color='#264653'
+          boxShadow='md'
+          _hover={{ bg: '#E76F51', color: 'white' }}
           onClick={handleClick}
           {...rest}
         />

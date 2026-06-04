@@ -54,6 +54,8 @@ NODE_ENV=production node backend/server.js
 
 Cockroach Poker is a bluffing game where players pass cards to each other, making claims about what creature is on the card. The receiving player must decide whether to believe the claim or call it a bluff. The goal is to avoid collecting four of the same creature type.
 
+Each player uses their own `/play` view as the game controller, including the room host. The `/game` route is a shared table/spectator display and is not required for remote play.
+
 ## Credits
 
 ### Assets

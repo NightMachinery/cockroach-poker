@@ -113,6 +113,11 @@ tmux capture-pane -t cockroachpoker-backend -p
 ✅ Proxy support for intranet deployment
 ✅ Development mode with hot-reload
 
+## Gameplay Views
+
+- `/play` is the per-player controller view. Every remote participant, including the host, uses this page to see their hand and take turns.
+- `/game` is a shared table/spectator display. It is optional and does not provide player actions.
+
 ## Configuration File
 
 `.self_host_config.json` stores the deployment URL:

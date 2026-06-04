@@ -46,9 +46,7 @@ describe('GamePage component', () => {
       </ChakraProvider>
     );
 
-    // Check that the page renders with "Playing at" text
-    const playingAtText = screen.getByText(/Playing at/);
-    expect(playingAtText).to.exist;
+    expect(screen.getByText(/Room:/)).toBeInTheDocument();
   });
 
   test('renders players images with names bmo and finn', async () => {

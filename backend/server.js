@@ -209,7 +209,13 @@ io.on('connection', (socket) => {
       socket.emit('actionError', 'Only a mod can start the game');
       return;
     }
-    gameRoomService.startGame(roomCode);
+    try {
+      gameRoomService.startGame(roomCode);
+    } catch (err) {
+      console.error('startGame error:', err);
+      socket.emit('actionError', err.message || 'Could not start the game');
+      return;
+    }
     gameRoomService.saveGameRoom(roomCode);
     console.log(`Emitting returnStartGame for room ${roomCode}`);
     socket.emit('returnStartGame', roomCode);

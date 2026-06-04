@@ -180,6 +180,14 @@ export class GameRoomService {
     }
     if (gameRoom.gameStatus === GameStatus.ONGOING) return;
 
+    // Only active (non-observer) players are dealt cards and take turns.
+    const activePlayers = gameRoom.players.filter(
+      (p) => p.role !== Roles.OBSERVER
+    );
+    if (activePlayers.length === 0) {
+      throw new Error(`startGame(): GameRoom ${roomCode} has no active players.`);
+    }
+
     // Set game status to ONGOING
     gameRoom.gameStatus = GameStatus.ONGOING;
 
@@ -198,11 +206,6 @@ export class GameRoomService {
       [deck[i], deck[j]] = [deck[j], deck[i]];
     }
 
-    // Only active (non-observer) players are dealt cards and take turns.
-    const activePlayers = gameRoom.players.filter(
-      (p) => p.role !== Roles.OBSERVER
-    );
-
     // Deal cards evenly among active players.
     const cardsPerPlayer = Math.floor(numCards / activePlayers.length);
 
@@ -219,10 +222,13 @@ export class GameRoomService {
       player.handSize = player.hand.length;
     });
 
-    // Set the first turn player to the first active player.
+    // Pick a random active player to start. The first action uses the same
+    // player for turnPlayer and prevPlayer to mark the start-of-round state.
+    const startingPlayer =
+      activePlayers[Math.floor(Math.random() * activePlayers.length)];
     gameRoom.currentAction = {
-      turnPlayer: activePlayers[0].uuid,
-      prevPlayer: activePlayers[0].uuid,
+      turnPlayer: startingPlayer.uuid,
+      prevPlayer: startingPlayer.uuid,
       conspiracy: [],
       card: -1,
       claim: -1,
