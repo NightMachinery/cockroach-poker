@@ -572,17 +572,38 @@ io.on('connection', (socket) => {
       );
       return;
     }
-    const prevPlayer = gameRoom.currentAction?.prevPlayer;
+    // callCard returns a reveal object on success (truthy) or false on failure.
+    const reveal = gameRoomService.callCard(roomCode, fromPlayer, callAs);
 
-    const success = gameRoomService.callCard(roomCode, fromPlayer, callAs);
-
-    if (success) {
+    if (reveal) {
+      // The card is public once called: broadcast the truth to the whole room so
+      // every client can animate the reveal. The masked returnGameRoom that
+      // follows already shows card: 0 — correct, the round has reset.
+      io.to(GAME_ROOM_PREFIX + roomCode).emit('returnReveal', reveal);
+      gameRoomService.saveGameRoom(roomCode); // piles feed the loss condition
       sendGameRoomToEveryoneInRoom(roomCode);
       sendNewRoundInfoToEveryoneInRoom(roomCode);
       endGameIfLossCondition(roomCode);
     } else {
       console.warn('gameRoomService.callCard() failed');
     }
+  });
+
+  // requestPeekCard: the turn player looks at the in-flight card (required
+  // before PASS). The caller's uuid is derived from their authenticated userId —
+  // NEVER trust a client-supplied uuid, or a non-turn player could spoof a peek.
+  socket.on('requestPeekCard', (roomCode) => {
+    const userId = socket.data.userId;
+    if (!userId) return;
+    const player = gameRoomService.getPlayerByUserId(roomCode, userId);
+    if (!player) return;
+    const res = gameRoomService.peekCard(roomCode, player.uuid);
+    if (!res.ok) {
+      socket.emit('actionError', 'Cannot peek right now');
+      return;
+    }
+    gameRoomService.saveGameRoom(roomCode); // persist peeked (refresh-safe)
+    socket.emit('returnPeekCard', { card: res.card }); // ONLY this socket
   });
 
   // On disconnect, mark this identity offline in every room it was present in,

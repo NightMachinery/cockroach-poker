@@ -230,6 +230,7 @@ export class GameRoomService {
       turnPlayer: startingPlayer.uuid,
       prevPlayer: startingPlayer.uuid,
       conspiracy: [],
+      peeked: [],
       card: -1,
       claim: -1,
     };
@@ -259,6 +260,7 @@ export class GameRoomService {
       turnPlayer: toPlayer,
       prevPlayer: fromPlayer,
       conspiracy: [fromPlayer],
+      peeked: [],
       card: card,
       claim: claim,
     };
@@ -291,6 +293,7 @@ export class GameRoomService {
       turnPlayer: toPlayer,
       prevPlayer: fromPlayer,
       conspiracy: [...currentAction.conspiracy, fromPlayer],
+      peeked: [],
       card: currentAction.card,
       claim: claim,
     };
@@ -312,9 +315,25 @@ export class GameRoomService {
     // Whether the previous player's claim was true or false
     const reality = currentAction.card === currentAction.claim;
 
+    // Whether the caller guessed correctly
+    const wasCorrect = callAs === reality;
+
     // Determine who lost the round
-    const loser =
-      callAs === reality ? currentAction.prevPlayer : currentAction.turnPlayer;
+    const loser = wasCorrect ? currentAction.prevPlayer : currentAction.turnPlayer;
+
+    // Capture the reveal BEFORE resetting currentAction, so the (now public)
+    // card value can be animated on every client. Returned to the caller, which
+    // emits it as a room-wide `returnReveal` event.
+    const reveal = {
+      actualCard: currentAction.card,
+      claim: currentAction.claim,
+      callAs,
+      wasCorrect,
+      reality,
+      loserUuid: loser,
+      callerUuid: currentAction.turnPlayer,
+      prevPlayerUuid: currentAction.prevPlayer,
+    };
 
     // Add the card to the loser's pile
     this.addCardToPile(roomCode, loser, currentAction.card);
@@ -324,11 +343,26 @@ export class GameRoomService {
       turnPlayer: loser,
       prevPlayer: loser,
       conspiracy: [],
+      peeked: [],
       card: 0,
       claim: 0,
     };
 
-    return true;
+    return reveal;
+  }
+
+  // The turn player looks at the in-flight card (PASS requires peeking first).
+  // Returns { ok, card } — the true card is only ever returned to the verified
+  // turn player; everyone else's view stays masked via publicGameRoomFor.
+  peekCard(roomCode, playerUuid) {
+    const gameRoom = this.gameRoomMap.get(roomCode);
+    if (!gameRoom || !gameRoom.currentAction) return { ok: false };
+    const ca = gameRoom.currentAction;
+    if (playerUuid !== ca.turnPlayer) return { ok: false }; // only the turn player
+    if (ca.card === 0 || ca.card === -1) return { ok: false }; // no live card
+    if (!ca.peeked) ca.peeked = [];
+    if (!ca.peeked.includes(playerUuid)) ca.peeked.push(playerUuid);
+    return { ok: true, card: ca.card };
   }
 
   // Check loss condition and end the game if player lost.

@@ -8,6 +8,12 @@ export const createGameRoom = (data) => {
     numPlayers: data.numPlayers,
     gameStatus: data.gameStatus,
     players: data.players || [],
+    // currentAction is persisted opaquely (whatever shape the service writes):
+    //   { turnPlayer, prevPlayer, conspiracy: [uuid], peeked: [uuid],
+    //     card, claim }
+    // `conspiracy` = prior holders of the in-flight card; `peeked` = players who
+    // have looked at it this hop (remote-play hidden-info enforcement). Both feed
+    // the per-viewer card masking in gameroom.service.js#publicGameRoomFor.
     currentAction: data.currentAction || null,
     deck: data.deck || [],
     deckSize: data.deckSize || 0,
