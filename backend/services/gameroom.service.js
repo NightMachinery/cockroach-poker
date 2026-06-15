@@ -631,18 +631,55 @@ export class GameRoomService {
     return gameRoom.migrateMap?.[migrateId] || null;
   }
 
-  // Sanitized room view safe to broadcast to clients. Strips server-only
-  // secrets (migrate map, server secret) and adds display names. Each player's
-  // own migrateId is NOT included here; it is fetched on demand by self/mods.
-  publicGameRoom(roomCode) {
+  // Whether `viewerUuid` is entitled to see the true value of the in-flight
+  // card. Only members of the conspiracy (prior holders) and players who have
+  // peeked may see it; the live card (0 / -1 sentinels) is never visible.
+  _canSeeActionCard(ca, viewerUuid) {
+    if (!ca || !viewerUuid) return false;
+    if (ca.card === 0 || ca.card === -1) return false; // no live card
+    return (
+      (ca.conspiracy || []).includes(viewerUuid) ||
+      (ca.peeked || []).includes(viewerUuid)
+    );
+  }
+
+  // Per-viewer sanitized room view. Enforces hidden information server-side:
+  //  - `hand` is the real array only for the viewer's own player; everyone else
+  //    gets []. `handSize` stays for all.
+  //  - `pile`/`pileSize` are unchanged for everyone (piles are public face-up).
+  //  - `currentAction.card` is masked to 0 unless the viewer may see it
+  //    (conspiracy or peeked). The raw `peeked` array is stripped and replaced
+  //    with a derived `youPeeked` boolean.
+  // `viewerUserId` may be null (spectator / not-yet-identified socket).
+  publicGameRoomFor(roomCode, viewerUserId) {
     const gameRoom = this.gameRoomMap.get(roomCode);
     if (!gameRoom) return null;
+
+    // Resolve the viewer's room uuid (null for spectators / unknown users).
+    const viewer = viewerUserId
+      ? gameRoom.players.find((p) => p.userId === viewerUserId)
+      : null;
+    const viewerUuid = viewer ? viewer.uuid : null;
+
+    // Mask the in-flight card per viewer and swap raw peeked → youPeeked.
+    let currentAction = gameRoom.currentAction;
+    if (currentAction) {
+      const { peeked, ...rest } = currentAction;
+      currentAction = {
+        ...rest,
+        card: this._canSeeActionCard(currentAction, viewerUuid)
+          ? currentAction.card
+          : 0,
+        youPeeked: (peeked || []).includes(viewerUuid),
+      };
+    }
+
     return {
       _id: gameRoom._id,
       roomCode: gameRoom.roomCode,
       numPlayers: gameRoom.numPlayers,
       gameStatus: gameRoom.gameStatus,
-      currentAction: gameRoom.currentAction,
+      currentAction,
       creatorUserId: gameRoom.creatorUserId,
       players: gameRoom.players.map((p) => ({
         uuid: p.uuid,
@@ -657,11 +694,19 @@ export class GameRoomService {
         online: !!p.online,
         handSize: p.handSize,
         pileSize: p.pileSize,
-        // hand/pile intentionally omitted from the shared room view; PlayPage
-        // gets the player's own hand via returnPlayer / its own player entry.
-        hand: p.hand,
+        // hand: only the viewer's own hand is sent; everyone else gets [].
+        hand: viewerUuid && p.uuid === viewerUuid ? p.hand : [],
+        // pile is public face-up in this game.
         pile: p.pile,
       })),
     };
+  }
+
+  // Sanitized room view safe to broadcast to clients. Strips server-only
+  // secrets (migrate map, server secret) and adds display names. Each player's
+  // own migrateId is NOT included here; it is fetched on demand by self/mods.
+  // This null-viewer wrapper yields the spectator view (no hand, masked card).
+  publicGameRoom(roomCode) {
+    return this.publicGameRoomFor(roomCode, null);
   }
 }

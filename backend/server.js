@@ -67,10 +67,19 @@ const dbReady = (async () => {
   await gameRoomService.initializeGameRoomMap();
 })();
 
-// Broadcast the sanitized (secret-free) room to everyone in it.
+// Broadcast a PER-VIEWER sanitized room to everyone in it. Each socket gets a
+// payload masked for its own identity (own hand only, in-flight card hidden
+// unless that viewer may see it). Unidentified sockets get the spectator view,
+// and multiple sockets per user are handled automatically.
 const broadcastGameRoom = (roomCode) => {
-  const room = gameRoomService.publicGameRoom(roomCode);
-  if (room) io.to(GAME_ROOM_PREFIX + roomCode).emit('returnGameRoom', room);
+  const sockets = io.sockets.adapter.rooms.get(GAME_ROOM_PREFIX + roomCode);
+  if (!sockets) return;
+  for (const sid of sockets) {
+    const s = io.sockets.sockets.get(sid);
+    if (!s) continue;
+    const room = gameRoomService.publicGameRoomFor(roomCode, s.data.userId);
+    if (room) s.emit('returnGameRoom', room);
+  }
 };
 
 // ===== Temp-mod "no mods online" timers (per room) =====
@@ -181,7 +190,10 @@ io.on('connection', (socket) => {
   // requestGameRoom: request for GameRoom data from a host
   socket.on('requestGameRoom', async (roomCode) => {
     console.log(`Socket ${socket.id} requested GameRoom info for ${roomCode}`);
-    socket.emit('returnGameRoom', gameRoomService.publicGameRoom(roomCode));
+    socket.emit(
+      'returnGameRoom',
+      gameRoomService.publicGameRoomFor(roomCode, socket.data.userId)
+    );
   });
 
   // requestCreateEmptyGameRoom: create an empty GameRoom. The requesting user
@@ -195,7 +207,10 @@ io.on('connection', (socket) => {
     if (socket.data.userId) {
       gameRoom.creatorUserId = socket.data.userId;
     }
-    socket.emit('returnEmptyGameRoom', gameRoomService.publicGameRoom(gameRoom.roomCode));
+    socket.emit(
+      'returnEmptyGameRoom',
+      gameRoomService.publicGameRoomFor(gameRoom.roomCode, socket.data.userId)
+    );
   });
 
   socket.on('requestStartGame', async (roomCode) => {
