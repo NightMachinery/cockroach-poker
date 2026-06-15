@@ -1,169 +1,22 @@
-import { Box, Text, Container, Image, HStack, VStack } from '@chakra-ui/react';
+import { Box, Text, Container, HStack, VStack } from '@chakra-ui/react';
 import { useState, useEffect } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
-import { keyframes } from '@emotion/react';
+import { useLocation } from 'react-router-dom';
 import { Link as ReactRouterLink } from 'react-router-dom';
 import { Link as ChakraLink } from '@chakra-ui/react';
-import { useToast } from '@chakra-ui/react';
 import { socket, bootstrapIdentity } from '../lib/socket.js';
 import RoomLinkButton from '../components/RoomLinkButton.jsx';
+import GameTable, { getPlayerName } from '../components/GameTable.jsx';
 
-const cardEntrance = keyframes`
-  0% {
-    transform: scale(0.5) rotate(-10deg);
-    opacity: 0;
-  }
-  50% {
-    transform: scale(1.1) rotate(3deg);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1) rotate(0deg);
-  }
-`;
-
-const pulseGlow = keyframes`
-  0% { box-shadow: 0 0 10px 4px rgba(233, 196, 106, 0.6); }
-  50% { box-shadow: 0 0 20px 10px rgba(233, 196, 106, 1); }
-  100% { box-shadow: 0 0 10px 4px rgba(233, 196, 106, 0.6); }
-`;
-
-const avatarGlow = keyframes`
-  0% { box-shadow: 0 0 20px 10px rgba(72, 187, 120, 0.6); }
-  50% { box-shadow: 0 0 40px 25px rgba(72, 187, 120, 1); }
-  100% { box-shadow: 0 0 20px 10px rgba(72, 187, 120, 0.6); }
-`;
-
-const correctGlow = keyframes`
-  0% { box-shadow: 0 0 20px 10px rgba(72, 187, 120, 0.6); }
-  50% { box-shadow: 0 0 40px 25px rgba(72, 187, 120, 1); }
-  100% { box-shadow: 0 0 20px 10px rgba(72, 187, 120, 0.6); }
-`;
-
-const incorrectGlow = keyframes`
-  0% { box-shadow: 0 0 20px 10px rgba(255, 0, 0, 0.6); }
-  50% { box-shadow: 0 0 40px 25px rgba(255, 0, 0, 1); }
-  100% { box-shadow: 0 0 20px 10px rgba(255, 0, 0, 0.6); }
-`;
-
-const getPilePosition = (position, index) => {
-  const base = {};
-
-  // Top left
-  if (position.top === '5%' && position.left === '5%') {
-    return { top: '10%', left: '15%' };
-  }
-  // Top right
-  if (position.top === '5%' && position.right === '5%') {
-    return { top: '10%', right: '15%' };
-  }
-  // Bottom left
-  if (position.bottom === '5%' && position.left === '5%') {
-    return { bottom: '10%', left: '15%' };
-  }
-  // Bottom right
-  if (position.bottom === '5%' && position.right === '5%') {
-    return { bottom: '10%', right: '15%' };
-  }
-  // Top center
-  if (position.top === '5%' && position.left === '50%') {
-    return {
-      top: '30%',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      flexDirection: 'row',
-    };
-  }
-  // Bottom center
-  if (position.bottom === '5%' && position.left === '50%') {
-    return {
-      bottom: '30%',
-      left: '50%',
-      transform: 'translateX(-50%)',
-      flexDirection: 'row',
-    };
-  }
-
-  return base;
-};
-
-const CardNumberToString = {
-  0: 'Unknown',
-  1: 'Bat',
-  2: 'Fly',
-  3: 'Cockroach',
-  4: 'Toad',
-  5: 'Rat',
-  6: 'Scorpion',
-  7: 'Spider',
-  8: 'Stinkbug',
-};
-
-const CardNumberToImage = {
-  0: '/cards/back.png',
-  1: '/cards/bat.png',
-  2: '/cards/fly.png',
-  3: '/cards/roach.png',
-  4: '/cards/frog.png',
-  5: '/cards/rat.png',
-  6: '/cards/scorpion.png',
-  7: '/cards/spider.png',
-  8: '/cards/stinkbug.png',
-};
-
-const avatarMap = {
-  'baby-yoda': '/avatars/baby-yoda.png',
-  bmo: '/avatars/bmo.png',
-  'cookie-monster': '/avatars/cookie-monster.png',
-  finn: '/avatars/finn.png',
-  'genie-lamp': '/avatars/genie-lamp.png',
-  'harry-potter': '/avatars/harry-potter.png',
-  jake: '/avatars/jake.png',
-  mermaid: '/avatars/mermaid.png',
-  'navi-avatar': '/avatars/navi-avatar.png',
-  'wonder-woman': '/avatars/wonder-woman.png',
-  'bill-cipher': '/avatars/bill-cipher.png',
-};
-
-const getPlayerName = (players, givenUUID) => {
-  const foundPlayer = players.find((p) => p.uuid == givenUUID);
-  return foundPlayer
-    ? foundPlayer.displayName || foundPlayer.nickname
-    : 'Unknown Player';
-};
-
+// Standalone spectator / projector screen. Shows the shared table for everyone
+// (no hand — myUuid is null). After the remote-play conversion it is an optional
+// big-screen view; each player now also sees the table on their own /play page.
 const GamePage = () => {
   const location = useLocation();
   const { roomCode } = location.state || {};
-  const [turnPlayerId, setTurnPlayerId] = useState(null);
 
   const [gameRoom, setGameRoom] = useState(null);
-  const isCorrect =
-    gameRoom?.currentAction?.claim === gameRoom?.currentAction?.card;
-  const [callResult, setCallResult] = useState(null);
-  const [showCard, setShowCard] = useState(true); // to hold card for a bit & show color change
-  const [revealPhase, setRevealPhase] = useState('waiting'); // 'waiting', 'revealed', 'hidden'
-  const [savedAction, setSavedAction] = useState(null);
+  const [reveal, setReveal] = useState(null);
   const [gameOver, setGameOver] = useState(null);
-  const toast = useToast();
-
-  const handleJoinRoom = (roomCode) => {
-    socket.emit('joinSocketRoom', roomCode);
-  };
-
-  useEffect(() => {
-    if (gameRoom?.currentAction && revealPhase === 'waiting') {
-      setSavedAction(gameRoom.currentAction);
-    }
-  }, [gameRoom?.currentAction, revealPhase]);
-
-  // useEffect(() => {
-  //   console.log('Current turnPlayerId:', turnPlayerId);
-  //   console.log(
-  //     'Player IDs:',
-  //     gameRoom?.players.map((p) => p.uuid)
-  //   );
-  // }, [turnPlayerId, gameRoom]);
 
   useEffect(() => {
     bootstrapIdentity();
@@ -173,7 +26,6 @@ const GamePage = () => {
     });
 
     socket.on('returnGameRoom', (gameRoom) => {
-      //console.log('Received returnGameRoom', gameRoom);
       setGameRoom(gameRoom);
     });
 
@@ -181,381 +33,104 @@ const GamePage = () => {
       setGameOver(loserId);
     });
 
+    // The card is revealed to the whole room at call time; animate it for ~2s.
+    socket.on('returnReveal', (payload) => {
+      setReveal(payload);
+      setTimeout(() => setReveal(null), 2000);
+    });
+
     return () => {
       socket.off('connect');
       socket.off('returnGameRoom');
       socket.off('returnGameOver');
+      socket.off('returnReveal');
     };
   }, []);
-
-  useEffect(() => {
-    socket.on('playerCallResult', ({ correct }) => {
-      //console.log('Player call result:', correct);
-
-      setCallResult(correct);
-
-      if (savedAction) {
-        toast({
-          title: correct ? 'Correct!' : 'Wrong!',
-          description: `The actual card was a ${
-            CardNumberToString[savedAction.card]
-          }.`,
-          status: correct ? 'success' : 'error',
-          duration: 4000,
-          isClosable: true,
-        });
-      }
-    });
-
-    return () => {
-      socket.off('playerCallResult');
-    };
-  }, [savedAction]);
-
-  useEffect(() => {
-    if (callResult !== null) {
-      // first show the result
-      setRevealPhase('revealed');
-
-      // then hide after 2 seconds
-      const hideTimer = setTimeout(() => {
-        setRevealPhase('hidden');
-      }, 2000);
-
-      return () => clearTimeout(hideTimer);
-    }
-  }, [callResult]);
 
   useEffect(() => {
     if (roomCode) {
-      handleJoinRoom(roomCode);
+      socket.emit('joinSocketRoom', roomCode);
     }
   }, [roomCode]);
 
-  useEffect(() => {
-    socket.on('turnPlayerUpdated', ({ turnPlayerId }) => {
-      setTurnPlayerId(turnPlayerId);
-    });
-
-    return () => {
-      socket.off('turnPlayerUpdated');
-    };
-  }, []);
-
   return (
-    <>
-      <Container
-        maxW='100vw'
-        maxH='100vh'
+    <Container
+      maxW='100vw'
+      maxH='100vh'
+      display='flex'
+      justifyContent='center'
+      alignItems='center'
+      bg='#2A9D8F'
+      p={0}
+      flexDirection='column'
+    >
+      <Box
         display='flex'
         justifyContent='center'
         alignItems='center'
-        bg='#2A9D8F'
-        p={0}
-        flexDirection='column'
+        height='100vh'
+        bg='#E9C46A'
+        p={4}
+        position='relative'
+        width='100%'
       >
-        <Box
-          display='flex'
-          justifyContent='center'
-          alignItems='center'
-          height='100vh'
-          bg='#E9C46A'
-          p={4}
-          position='relative'
-          width='100%'
-        >
-          <HStack position='absolute' top='3' left='4' spacing={3} align='center'>
-            <Text fontSize='2xl' fontWeight='bold' color='#264653'>
-              Room:{' '}
-              <Text
-                as='span'
-                color='#FBC02D'
-                textShadow='0 0 1px #264653, 0 0 3px #000000, 0 0 15px #264653;'
-              >
-                {roomCode || 'N/A'}
-              </Text>
-            </Text>
-            <RoomLinkButton roomCode={roomCode} size='sm' />
-          </HStack>
-          {gameRoom ? (
-            <Box
-              width='90%'
-              height='90%'
-              bg='#F4A261'
-              p={4}
-              display='flex'
-              flexDirection='column'
-              alignItems='center'
-              justifyContent='center'
-              position='relative'
-              borderRadius='md'
+        <HStack position='absolute' top='3' left='4' spacing={3} align='center'>
+          <Text fontSize='2xl' fontWeight='bold' color='#264653'>
+            Room:{' '}
+            <Text
+              as='span'
+              color='#FBC02D'
+              textShadow='0 0 1px #264653, 0 0 3px #000000, 0 0 15px #264653;'
             >
-              {gameOver ? (
-                <VStack spacing={1}>
-                  <Text fontSize='5xl' fontWeight='bold' color='#172d36'>
-                    Game Over!
-                  </Text>
-                  <Text fontSize='3xl' fontWeight='bold' color='#264653'>
-                    Loser: {getPlayerName(gameRoom.players, gameOver)}
-                  </Text>
-                  <Text
-                    fontSize='2xl'
-                    fontWeight='bold'
-                    color='#172d36'
-                    decoration={'underline'}
-                  >
-                    <ChakraLink as={ReactRouterLink} to='/'>
-                      Play again?
-                    </ChakraLink>
-                  </Text>
-                </VStack>
-              ) : (
-                ''
-              )}
-
-              {gameRoom.players.map((player, index) => {
-                const pileCounts = player?.pile?.reduce((acc, card) => {
-                  acc[card] = (acc[card] || 0) + 1;
-                  return acc;
-                }, {});
-
-                const positions = [
-                  { top: '5%', left: '5%' },
-                  { top: '5%', right: '5%' },
-                  { bottom: '5%', left: '5%' },
-                  { bottom: '5%', right: '5%' },
-                  { top: '5%', left: '50%', transform: 'translateX(-50%)' },
-                  { bottom: '5%', left: '50%', transform: 'translateX(-50%)' },
-                ];
-
-                const avatarSrc =
-                  avatarMap[player.playerIcon] || '/avatars/default.png';
-
-                const isInConspiracy =
-                  gameRoom?.currentAction?.conspiracy?.includes(player.uuid);
-
-                return (
-                  <Box key={`player-${index}`}>
-                    <Box
-                      position='absolute'
-                      display='flex'
-                      flexDirection='column'
-                      alignItems='center'
-                      zIndex={2}
-                      {...positions[index % positions.length]}
-                    >
-                      <Box
-                        width={['50px', '65px', '80px']}
-                        height={['50px', '65px', '80px']}
-                        borderRadius='full'
-                        overflow='hidden'
-                        animation={
-                          player.uuid === gameRoom?.currentAction?.turnPlayer
-                            ? `${avatarGlow} 1.5s ease-in-out infinite`
-                            : 'none'
-                        }
-                        filter={
-                          isInConspiracy
-                            ? 'grayscale(100%) brightness(0.5)'
-                            : 'none'
-                        }
-                        opacity={isInConspiracy ? 0.5 : 1}
-                        transition='filter 0.5s ease, opacity 0.5s ease'
-                        border={
-                          player.uuid === turnPlayerId
-                            ? '2px solid rgba(233, 196, 106, 1)'
-                            : 'none'
-                        }
-                        backgroundColor='rgba(255,255,255,0.1)'
-                      >
-                        <Image
-                          // as='img'
-                          src={avatarSrc}
-                          alt={player.nickname}
-                          width={['50px', '65px', '80px']}
-                          borderRadius='full'
-                          animation={
-                            player.uuid === turnPlayerId
-                              ? `${avatarGlow} 1.5s ease-in-out infinite`
-                              : 'none'
-                          }
-                          filter={
-                            isInConspiracy
-                              ? 'grayscale(100%) brightness(0.5)'
-                              : 'none'
-                          }
-                          opacity={isInConspiracy ? 0.5 : 1}
-                          transition='filter 0.5s ease, opacity 0.5s ease'
-                        />
-                      </Box>
-                      <Text
-                        mt='2px'
-                        fontSize={['xl', 'xl']}
-                        color='white'
-                        fontWeight='bold'
-                        textShadow='0 0 3px black'
-                        textAlign='center'
-                        maxW='80px'
-                        // overflow='hidden'
-                        whiteSpace='nowrap'
-                        // textOverflow='ellipsis'
-                      >
-                        {player.nickname}
-                      </Text>
-                      <HStack spacing='8px' mt='1px'>
-                        <Image
-                          src='/cards/back.png'
-                          alt='Hand Card'
-                          height='65px'
-                          objectFit='contain'
-                        />
-                        <Text
-                          fontSize='5xl'
-                          color='black'
-                          textShadow='0 0 9px white'
-                        >
-                          ×{player?.hand?.length}
-                        </Text>
-                      </HStack>
-                    </Box>
-
-                    <Box
-                      position='absolute'
-                      display='flex'
-                      // flexDirection='column'
-                      gap='4px'
-                      p={1}
-                      bg='rgba(0,0,0,0.4)'
-                      borderRadius='md'
-                      zIndex={1}
-                      {...getPilePosition(positions[index % positions.length])}
-                    >
-                      {pileCounts &&
-                        Object.entries(pileCounts).map(([cardNum, count]) => {
-                          const card = parseInt(cardNum);
-                          const imageSrc = CardNumberToImage[card];
-                          const label = CardNumberToString[card];
-
-                          return (
-                            <Box
-                              key={`pile-${index}-${card}`}
-                              display='flex'
-                              alignItems='center'
-                              gap='6px'
-                            >
-                              <Image
-                                src={imageSrc}
-                                alt={label}
-                                height='65px'
-                                objectFit='contain'
-                              />
-                              <Text
-                                fontSize='3xl'
-                                color='white'
-                                whiteSpace='nowrap'
-                              >
-                                ×{count}
-                              </Text>
-                            </Box>
-                          );
-                        })}
-                    </Box>
-                  </Box>
-                );
-              })}
-
-              {savedAction &&
-                savedAction.conspiracy.length >= 1 &&
-                revealPhase !== 'hidden' && (
-                  // only hide when explicitly in 'hidden' phase
-                  <VStack
-                    position='absolute'
-                    top='50%'
-                    left='50%'
-                    transform='translate(-50%, -50%)'
-                    spacing={2}
-                    zIndex='3'
-                  >
-                    <Box
-                      width='600'
-                      aspectRatio='6/6'
-                      backgroundColor={
-                        callResult === true
-                          ? '#48BB78' // green for correct
-                          : callResult === false
-                          ? '#F56565' // red for wrong
-                          : '#F3D475' // yellow neutral before call
-                      }
-                      borderRadius='md'
-                      display='flex'
-                      justifyContent='center'
-                      alignItems='center'
-                      boxShadow='0 0 100vw rgba(0,0,0,0.9)'
-                      animation={`${cardEntrance} 0.6s ease`}
-                      transition='background-color 0.5s ease, opacity 0.5s ease'
-                      opacity={1}
-                    >
-                      <Image
-                        src={
-                          revealPhase === 'revealed'
-                            ? CardNumberToImage[gameRoom.currentAction.card] // try to show actual card when revealed
-                            : '/cards/back.png'
-                        } // otherwise just show back of card when waiting
-                        alt={
-                          revealPhase === 'revealed'
-                            ? 'Revealed Card'
-                            : 'Facedown Card'
-                        }
-                        width='90%'
-                        height='90%'
-                        objectFit='contain'
-                        borderRadius='md'
-                      />
-                    </Box>
-
-                    <Text
-                      fontSize={['lg', 'xl', '2xl']}
-                      fontWeight='bold'
-                      color='white'
-                      textShadow='0 0 5px black'
-                      bg='rgba(0,0,0,0.5)'
-                      px={4}
-                      py={2}
-                      borderRadius='md'
-                    >
-                      {revealPhase === 'revealed'
-                        ? `ACTUAL CARD: ${
-                            CardNumberToString[gameRoom?.currentAction.card]
-                          }`
-                        : `CLAIM IS: ${
-                            CardNumberToString[gameRoom?.currentAction.claim]
-                          }`}
-                    </Text>
-                  </VStack>
-                )}
-            </Box>
-          ) : (
-            <>
-              <VStack>
-                <Text fontSize={'2xl'}>Loading game...</Text>
-                <Text fontSize={'lg'}>
-                  If this doesn't load,{' '}
-                  <Text
-                    as={'span'}
-                    color={'teal.500'}
-                    textDecoration={'underline'}
-                  >
-                    <ChakraLink as={ReactRouterLink} to='/'>
-                      try again.
-                    </ChakraLink>
-                  </Text>
+              {roomCode || 'N/A'}
+            </Text>
+          </Text>
+          <RoomLinkButton roomCode={roomCode} size='sm' />
+        </HStack>
+        {gameRoom ? (
+          <Box width='90%' height='90%' position='relative'>
+            {gameOver ? (
+              <VStack
+                spacing={1}
+                position='absolute'
+                top='50%'
+                left='50%'
+                transform='translate(-50%, -50%)'
+                zIndex={4}
+                bg='rgba(255,255,255,0.85)'
+                p={8}
+                borderRadius='md'
+              >
+                <Text fontSize='5xl' fontWeight='bold' color='#172d36'>
+                  Game Over!
+                </Text>
+                <Text fontSize='3xl' fontWeight='bold' color='#264653'>
+                  Loser: {getPlayerName(gameRoom.players, gameOver)}
+                </Text>
+                <Text fontSize='2xl' fontWeight='bold' color='#172d36' decoration={'underline'}>
+                  <ChakraLink as={ReactRouterLink} to='/'>
+                    Play again?
+                  </ChakraLink>
                 </Text>
               </VStack>
-            </>
-          )}
-        </Box>
-      </Container>
-    </>
+            ) : null}
+            <GameTable gameRoom={gameRoom} myUuid={null} reveal={reveal} />
+          </Box>
+        ) : (
+          <VStack>
+            <Text fontSize={'2xl'}>Loading game...</Text>
+            <Text fontSize={'lg'}>
+              If this doesn't load,{' '}
+              <Text as={'span'} color={'teal.500'} textDecoration={'underline'}>
+                <ChakraLink as={ReactRouterLink} to='/'>
+                  try again.
+                </ChakraLink>
+              </Text>
+            </Text>
+          </VStack>
+        )}
+      </Box>
+    </Container>
   );
 };
 
