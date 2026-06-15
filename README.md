@@ -54,7 +54,34 @@ NODE_ENV=production node backend/server.js
 
 Cockroach Poker is a bluffing game where players pass cards to each other, making claims about what creature is on the card. The receiving player must decide whether to believe the claim or call it a bluff. The goal is to avoid collecting four of the same creature type.
 
-Each player uses their own `/play` view as the game controller, including the room host. The `/game` route is a shared table/spectator display and is not required for remote play.
+### Remote play
+
+The game is built for **remote play** — each player is alone on their own device.
+
+- The **shared table** (everyone's piles, hand counts, the turn indicator, and the
+  reveal animation) is rendered on every player's own `/play` controller, so no
+  shared physical screen is needed. Observers see the table with no hand.
+- The `/game` route is an **optional** big-screen / projector / stream view of the
+  same table and is not required for remote play.
+- A persistent **pass/claim banner**, an **activity log**, and a **your-turn alert**
+  (sound + tab-title flash) keep remote players in the loop.
+
+### Hidden-information model
+
+Hidden information is enforced **server-side**, not just hidden in the UI:
+
+- Each client's `returnGameRoom` is **sanitized per viewer**: you receive the real
+  `hand` only for your own player; everyone else's `hand` is empty (`handSize`
+  stays visible). Piles are public face-up for everyone.
+- The in-flight card's true value is masked to `0` for anyone not entitled to see
+  it. On your turn you must **peek** (PASS) to look at the card before passing it
+  on — the server reveals the card only to you, and records that you've seen it
+  (`peeked`), so a refresh mid-pass keeps it visible.
+- At **call** time the card becomes public and is broadcast to the whole room via a
+  one-shot `returnReveal` event for the reveal animation.
+
+See [docs/remote-play.md](docs/remote-play.md) for the socket contract and the
+per-recipient broadcast design.
 
 ## Credits
 
