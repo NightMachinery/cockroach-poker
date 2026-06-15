@@ -154,9 +154,15 @@ io.on('connection', (socket) => {
       let authToken = token;
       if (!authToken) authToken = newAuthToken();
       const userId = tokenToUserId(authToken);
-      await upsertUser({ userId, token: authToken, name });
+      // Bind the identity to the socket SYNCHRONOUSLY, before any await. The
+      // client emits `identify` immediately followed by `requestJoinPlayerToRoom`
+      // on connect; if we waited until after upsertUser() to set these, the join
+      // handler (which reads socket.data.userId) would run during the await gap
+      // and see `undefined`, failing the join. tokenToUserId is a pure HMAC, so
+      // the userId is known up front — persistence can follow.
       socket.data.userId = userId;
       socket.data.authToken = authToken;
+      await upsertUser({ userId, token: authToken, name });
       const user = await findUserById(userId);
       socket.emit('identity', {
         userId,

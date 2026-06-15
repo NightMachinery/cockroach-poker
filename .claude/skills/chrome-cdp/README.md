@@ -117,11 +117,6 @@ Env overrides: `CP_ORIGIN` (default `http://localhost:5173`), `CHROME_CDP`
    - `requestPlayerCallCard(...)` → room-wide `returnReveal({...})`
    - per-viewer `returnGameRoom` (each socket gets its own masked payload)
 
-   **Known flake:** the browser auto-join occasionally loses a race with the
-   server's async `identify` handler and shows "Could not join room" — just
-   re-run `shot.mjs`. This is a pre-existing timing issue in the join flow, not
-   part of this skill.
-
 4. **Per-viewer masking is server-side.** After the remote-play conversion,
    `returnGameRoom` is sanitized per socket: a viewer sees a real `hand` only for
    their own player, and `currentAction.card === 0` unless they are in the
